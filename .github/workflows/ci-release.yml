@@ -25,7 +25,7 @@ jobs:
           python -m compileall -q moss_emphasis __init__.py
       - name: Frontend contract tests
         run: |
-          node --test tests/frontend.test.mjs
+          node --test tests/*.test.mjs
           node --check web/moss_emphasis.js
       - name: Package and verify archive
         run: python scripts/package.py

@@ -20,6 +20,10 @@ Requires **native ComfyUI MOSS-Image support**, its MOSS Qwen3.5 tokenizer, `Com
 
 ## Use
 
+![MOSS Emphasis Settings (English UI)](docs/images/moss-emphasis-settings.webp)
+
+*Settings screenshot in English. When ComfyUI language is Japanese, section headings, settings names, hover-help tooltips and the API export dropdown are translated automatically via ComfyUI's native custom-node i18n loader. See the [Japanese guide](README_JA.md).*
+
 Keep your normal positive/negative/model wiring. In Settings → MOSS Emphasis:
 
 - **Enable prompt weighting:** ON for the current workflow. New workflows default to OFF.
@@ -82,7 +86,7 @@ Send the returned `prompt` to the standard `/prompt` endpoint. Preparation error
 
 ```sh
 python -m unittest discover -s tests -v
-node --test tests/frontend.test.mjs
+node --test tests/*.test.mjs
 ```
 
 The full Python suite needs the existing ComfyUI dependencies `torch` and `aiohttp`; tests are skipped if those packages are absent. No GPU weights are downloaded by the tests. See [implementation design](docs/SPEC_0.9.md).

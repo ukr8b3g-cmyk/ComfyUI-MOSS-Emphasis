@@ -1,0 +1,22 @@
+{
+  "MOSSEmphasis_General_Enabled": {
+    "name": "プロンプトの重み付けを有効化",
+    "tooltip": "現在のワークフローのPositiveプロンプトで (語句:重み) 構文を有効にします。通常のCLIP Text EncodeやText Multilineをそのまま使えます。設定はワークフロー単位で保存され、新規ワークフローではOFFです。"
+  },
+  "MOSSEmphasis_General_Strength": {
+    "name": "重み付け強度",
+    "tooltip": "すべての重み指定の効果を調整します。1.00が標準、0.00は構文変換を含む完全バイパスです。1.00を超えると強調だけでなく抑制や負の重みの作用も強くなります。範囲は0.00～4.00です。"
+  },
+  "MOSSEmphasis_Advanced_Diagnostic": {
+    "name": "診断ログ",
+    "tooltip": "適用対象のノードID、設定、警告やエラーの原因をコンソールに記録します。プロンプト全文は記録しません。ON/OFFしても画像生成用キャッシュキーは変わりません。"
+  },
+  "MOSSEmphasis_Tools_Action": {
+    "name": "APIエクスポート",
+    "tooltip": "MOSS Emphasisの重み処理を含めた実行用API JSONを書き出します。ComfyUI標準のAPI形式で保存しただけでは、内部の重み処理が含まれない場合があります。",
+    "options": {
+      "Select action": "操作を選択",
+      "Export execution API JSON": "実行用API JSONを書き出す"
+    }
+  }
+}

@@ -18,7 +18,32 @@ ComfyUI本体のネイティブMOSS-Image対応と、現行のAttention/Settings
 
 ## 使い方
 
-従来の配線を維持します。
+### 画面の見方
+
+![MOSS Emphasis設定画面（英語UIの例）](docs/images/moss-emphasis-settings.webp)
+
+*図：英語UIでのSettings画面。ComfyUIのロケールを日本語にすると、設定名・「ⓘ」のマウスオーバーヘルプ・セクション名・プルダウン項目が日本語になります。*
+
+| 画像の英語表示 | 日本語UIでの表示 | 用途 |
+|---|---|---|
+| Advanced | 詳細設定 | 詳細オプションのグループ |
+| Diagnostic logging | 診断ログ | 問題の調査時に対象IDや警告をログへ出す。普段はOFF |
+| General | 一般 | 普段使う設定のグループ |
+| Strength | 重み付け強度 | 全体の効き具合。0.00〜4.00、標準は1.00 |
+| Enable prompt weighting | プロンプトの重み付けを有効化 | **ここをONにすると機能が有効**。初期値OFF |
+| Tools | ツール | 実行用データの書き出し |
+| API export | APIエクスポート | 重み処理を含む実行用API JSONを保存 |
+| Select action | 操作を選択 | ツール操作の未選択状態 |
+| Export execution API JSON | 実行用API JSONを書き出す | API exportのプルダウン内の実行項目 |
+
+### 通常の画像生成
+
+1. ComfyUIで **Settings → MOSS Emphasis**（日本語UIでは **MOSS 強調設定**）を開きます。
+2. **Enable prompt weighting（プロンプトの重み付けを有効化）をON**にします。
+3. **Strength（重み付け強度）を1.00**に設定します。値を下げると作用が弱まり、上げると強調・抑制の両方が強まります。
+4. 普段どおり **Positive側のCLIP Text Encode**、またはそこへ接続する **Text Multiline** 等に文章を入力してQueueします。専用Prompt Weightノードは不要です。
+
+従来の配線を変更する必要はありません。
 
 ```text
 Text Multiline / CSV / 文字列結合（必要な場合）
@@ -28,22 +53,29 @@ Text Multiline / CSV / 文字列結合（必要な場合）
 KSampler の positive
 ```
 
-Settings → **MOSS Emphasis** を開き、`Enable prompt weighting`をON、`Strength`を1.00にします。Positive欄へ、例えば次のように入力します。
+例えば、Positive欄に次のように入力できます。
 
 ```text
 portrait, (big eyes:0.5), (long hair:1.2), soft lighting
 ```
 
-設定は**現在のワークフロー単位**です。新規ワークフローは必ずOFFです。保存・読み戻し時はそのワークフローの設定を使用し、キュー投入後にStrengthを変えても投入済みジョブには影響しません。
+`(big eyes:0.5)` は「大きな目」を弱める方向、`(long hair:1.2)` は長い髪を強調する方向に作用します。**数値は実寸や出現確率を直接指定するものではありません。**
 
-| 設定 | 意味 |
-|---|---|
-| Enable prompt weighting | ON/OFF。初期値OFF |
-| Strength | 全指定への作用。0〜4、初期値1。大きい値は抑制・負の重みも強くします |
-| Diagnostic logging | 設定・対象IDを記録。プロンプト全文は記録しません |
-| API export | 拡張適用済みの実行用API JSONを書き出します |
+設定は**現在のワークフロー単位**です。新規ワークフローではOFFとなり、保存・読み戻し時にはそのワークフローの値を復元します。投入済みのキューには後から変更したStrengthを反映しません。MOSS Base／SFTの手動切替は不要です。
 
-OFFとStrength=0は**構文除去も含め完全バイパス**です。既存KJ版のStrength=0とはこの点が異なります。Negative欄は元の経路のままです。この拡張がNegative欄の重み構文へ機能を追加するわけではありません。
+### 詳細設定とツール
+
+- **Diagnostic logging（診断ログ）：** 問題調査時だけONにします。対象ノードID、設定、警告などを確認できますが、プロンプト全文は記録しません。
+- **API export（APIエクスポート）：** プルダウンの **Export execution API JSON（実行用API JSONを書き出す）** を選ぶと、重み処理を含めたAPI実行用JSONをダウンロードします。通常のComfyUI「API形式で保存」には内部の重み処理が含まれない場合があります。
+- **マウスオーバーヘルプ：** 各項目名の横にある `ⓘ` にカーソルを合わせると説明が表示されます。ComfyUIのロケールが日本語なら説明も日本語、英語なら英語になります。
+
+**OFFまたはStrength=0.00では、構文の除去も含めて完全バイパス**です。Negative欄はそのままで、この拡張による重み指定は追加されません。KJNodes版の専用Prompt Weightノードを同じ生成経路に残したままONにすると、二重適用防止エラーになります。
+
+### 日本語UIへの切り替え
+
+ComfyUIの **Settings → Comfy → Locale → Language** で **日本語** を選びます。拡張が更新済みなら、MOSS Emphasisのセクション名、設定ラベル、`ⓘ` ヘルプ、API exportの選択肢が自動的に日本語へ切り替わります。日本語翻訳はComfyUI標準のカスタムノード翻訳機構を利用し、モデル・CLIP・Promptの値や設定IDは変更しません。
+
+拡張のソースを更新した場合は、**ComfyUIを再起動してブラウザも再読み込み**してください。既存の `v0.9` リリースZIPには、このREADME画面例と日本語UI翻訳ファイルが含まれないため、GitHubの `main` を更新したものを使用してください。
 
 ## 重みの意味
 
