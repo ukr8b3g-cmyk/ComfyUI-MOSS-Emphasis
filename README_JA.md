@@ -2,6 +2,8 @@
 
 **普通のPositive欄で `(big eyes:0.5)` を使用し、SettingsだけでON/OFF・Strengthを操作するComfyUI拡張です。** 専用のPrompt Weightノードを配置する必要はありません。
 
+> **重要：MOSS-Image以外のモデルを使う場合は、本拡張をOFFにしてください。** Illustrious（SDXL）・Anima・Krea2・その他のモデルを使用する際は、**Settings → MOSS Emphasis → Enable prompt weighting** を **OFF** にすることを推奨します。通常のモデル判定ではMOSS用の重み処理を回避しますが、ONのままだと一部の特殊なサンプラー・Guidance・Conditioning構成が実行前の互換性検査で拒否される場合があります。**OFFにしても、IllustriousやAnimaなどの標準プロンプト重み付けは無効になりません。**
+
 > **0.9.1も試験版です。** CPUの単体・契約テストは実施しましたが、MOSS実モデルのGPU生成、実際のComfyUI画面、Base/SFTや量子化モデルの生成品質は未検証です。完全なV1受入完了とは区別してください。
 
 ## インストール
