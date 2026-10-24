@@ -78,7 +78,7 @@ if torch is not None:
 
     def modules():
         comfy=types.ModuleType("comfy");ldm=types.ModuleType("comfy.ldm");mods=types.ModuleType("comfy.ldm.modules");att=types.ModuleType("comfy.ldm.modules.attention");pe=types.ModuleType("comfy.patcher_extension")
-        att.ComfyAttention=Attention;att.AttentionTensorContainer=Container;att.optimized_attention=attention_pytorch
+        att.ComfyAttention=Attention;att.AttentionTensorContainer=Container;att.optimized_attention=attention_pytorch;att.attention_pytorch=attention_pytorch;att.attention_basic=attention_pytorch
         pe.WrappersMP=types.SimpleNamespace(DIFFUSION_MODEL="diffusion_model")
         comfy.ldm=ldm;ldm.modules=mods;mods.attention=att;comfy.patcher_extension=pe
         return {"comfy":comfy,"comfy.ldm":ldm,"comfy.ldm.modules":mods,"comfy.ldm.modules.attention":att,"comfy.patcher_extension":pe}
@@ -135,6 +135,17 @@ class EngineTests(unittest.TestCase):
         with self.assertRaisesRegex(EmphasisError,"DUPLICATE_WEIGHT_ENGINE"):patch(p,[[torch.ones(1,2,4),{}]],[.5,1],1)
     def test_runtime_off_keeps_raw(self):
         p,c=Patcher(),Clip();raw="(big eyes:.5)";out=Runtime().execute(p,c,raw,canonical({}));self.assertIs(out[0],p);self.assertEqual(c.last_text,raw)
+    def test_other_families_keep_normal_text_encoding(self):
+        for name in ("IllustriousXL", "Anima", "Krea2"):
+            with self.subTest(model=name):
+                p, c = Patcher(), Clip()
+                p.diffusion = type(name, (), {})()
+                raw = "portrait, (eyes:0.5), (long hair:1.5)"
+                output_model, conditioning = Runtime().execute(p, c, raw, canonical({"enabled": True, "strength": 1.0}))
+                self.assertIs(output_model, p)
+                self.assertEqual(c.last_text, raw)
+                self.assertTrue(conditioning)
+
     def test_runtime_other_model_keeps_raw(self):
         p,c=Patcher(),Clip();p.diffusion=object();raw="(big eyes:.5)";out=Runtime().execute(p,c,raw,canonical({"enabled":True}));self.assertIs(out[0],p);self.assertEqual(c.last_text,raw)
     def test_runtime_no_weight_no_clone(self):
@@ -148,10 +159,11 @@ class EngineTests(unittest.TestCase):
         def fail(*args,**kwargs):raise RuntimeError("cancelled")
         with self.assertRaises(RuntimeError):state(fail,torch.zeros(1,128,1,1),None,torch.ones(1,2,4),options)
         self.assertNotIn(KEY,options)
-    def test_slg_options_preserved(self):
-        def official():pass
-        official.__module__="comfy_extras.nodes_slg"
-        p=Patcher();p.model_options={"sampler_calc_cond_batch_function":official}
-        out=patch(p,[[torch.ones(1,2,4),{}]],[.5,1],1);self.assertIs(out.model_options["sampler_calc_cond_batch_function"],official)
+    def test_slg_module_spoof_rejected(self):
+        def untrusted(): pass
+        untrusted.__module__ = "comfy_extras.nodes_slg"
+        p=Patcher();p.model_options={"sampler_calc_cond_batch_function":untrusted}
+        with self.assertRaisesRegex(EmphasisError, "Unsupported guidance patch"):
+            patch(p,[[torch.ones(1,2,4),{}]],[.5,1],1)
 
 if __name__=="__main__":unittest.main()

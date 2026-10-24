@@ -1,9 +1,71 @@
 """Model-local DiT-only KJ-equation engine. No global attention replacement."""
 from __future__ import annotations
 import torch
+import sys
+import types
+from pathlib import Path
+import logging
 from .config import EmphasisError, coefficients
 
 KEY = "moss_emphasis.v1"
+
+
+# ComfyUI 0.42.x loads its official SLG file using the absolute filepath as
+# module name (nodes.load_custom_node); do not compare __module__ to a constant.
+# Resolve the already-loaded official class and compare the EXACT nested code
+# object, not a spoofable filename suffix or broad module prefix.
+_OFFICIAL_SLG_CALLBACKS = {
+    "block": {
+        "SkipLayerGuidanceDiT": "skip",
+        "SkipLayerGuidanceDiTSimple": "skip",
+    },
+    "sampler_post_cfg_function": {"SkipLayerGuidanceDiT": "post_cfg_function"},
+    "sampler_calc_cond_batch_function": {"SkipLayerGuidanceDiTSimple": "calc_cond_batch_function"},
+}
+
+
+def is_official_slg_callback(fn, slot):
+    accepted = _OFFICIAL_SLG_CALLBACKS.get(slot, {})
+    if not accepted or not isinstance(fn, types.FunctionType):
+        return False
+    try:
+        import nodes
+        official_file = (Path(nodes.__file__).resolve().parent / "comfy_extras" / "nodes_slg.py").resolve(strict=True)
+        source_module = sys.modules.get(fn.__module__)
+        if source_module is None or not hasattr(source_module, "__file__"):
+            return False
+        if Path(source_module.__file__).resolve(strict=True) != official_file:
+            return False
+        if Path(fn.__code__.co_filename).resolve(strict=True) != official_file:
+            return False
+        if fn.__globals__ is not vars(source_module):
+            return False
+        for class_name, nested_name in accepted.items():
+            cls = getattr(source_module, class_name, None)
+            method = getattr(cls, "execute", None)
+            code = getattr(getattr(method, "__func__", method), "__code__", None)
+            if code is None:
+                continue
+            for const in code.co_consts:
+                if isinstance(const, types.CodeType) and const.co_name == nested_name and fn.__code__ is const:
+                    return True
+    except (ImportError, AttributeError, OSError, TypeError, ValueError):
+        pass
+    return False
+
+
+def select_attention_backend(attn):
+    """Never change the user-selected backend or a model's per-layer kernel."""
+    backend = attn.optimized_attention
+    if backend is getattr(attn, "attention_pytorch", None) or backend is getattr(attn, "attention_basic", None):
+        return backend, "native_pytorch_basic"
+    if backend is getattr(attn, "attention_comfy_kitchen_int8", None):
+        if not callable(getattr(backend, "container_function", None)):
+            raise EmphasisError("UNSUPPORTED_ATTENTION_BACKEND", "Comfy Kitchen INT8 requires ComfyUI's container/prequantized attention path.")
+        return backend, "comfy_kitchen_int8"
+    raise EmphasisError("UNSUPPORTED_ATTENTION_BACKEND", "Supported global backends: PyTorch/basic and native --use-ck-attention. Sage/Flash/SOL/custom overrides are not enabled or silently replaced.")
+
+
 
 
 def combine_mask(mask, bias):
@@ -92,7 +154,7 @@ def patch(model, conditioning, weights, strength):
         raise EmphasisError("UNSUPPORTED_MODEL_ADAPTER", "Another attention/execution override is active; disable it for 0.9.")
     for group in options.get("patches_replace", {}).values():
         for func in group.values():
-            if getattr(func, "__module__", "") != "comfy_extras.nodes_slg":
+            if not is_official_slg_callback(func, "block"):
                 raise EmphasisError("UNSUPPORTED_MODEL_ADAPTER", "Unsupported block replacement patch.")
     for key in ("sampler_cfg_function", "model_function_wrapper", "denoise_mask_function"):
         if model.model_options.get(key):
@@ -101,11 +163,9 @@ def patch(model, conditioning, weights, strength):
         funcs = model.model_options.get(key, [])
         if not isinstance(funcs, (list, tuple)):
             funcs = [funcs]
-        if any(getattr(fn, "__module__", "") != "comfy_extras.nodes_slg" for fn in funcs):
+        if any(not is_official_slg_callback(fn, key) for fn in funcs):
             raise EmphasisError("UNSUPPORTED_MODEL_ADAPTER", f"Unsupported guidance patch: {key}.")
-    backend = attn.optimized_attention
-    if getattr(backend, "__name__", "") not in {"attention_pytorch", "attention_basic"}:
-        raise EmphasisError("UNSUPPORTED_ATTENTION_BACKEND", "0.9 requires native PyTorch/basic attention. No automatic backend switch is performed.")
+    backend, backend_kind = select_attention_backend(attn)
     if len(getattr(diffusion, "layers", [])) != 42 or not hasattr(diffusion, "text_embedder"):
         raise EmphasisError("UNSUPPORTED_MODEL_ADAPTER", "Expected the native 42-block MOSS-Image architecture.")
 
@@ -119,6 +179,10 @@ def patch(model, conditioning, weights, strength):
             opts = transformer_options or {}
             if opts.get("optimized_attention_override"):
                 raise EmphasisError("UNSUPPORTED_ATTENTION_BACKEND", "A late attention override would bypass emphasis.")
+            if backend_kind == "comfy_kitchen_int8" and kwargs.get("low_precision_attention", True) is False:
+                qt = q.peek() if isinstance(q, attn.AttentionTensorContainer) else q
+                if qt.dtype == torch.float32:
+                    raise EmphasisError("UNSUPPORTED_ATTENTION_BACKEND", "Comfy Kitchen would fall back to PyTorch for float32 + low_precision_attention=False; no silent fallback.")
             state = opts.get(KEY)
             if state:
                 rows, start, factors, bias = state
@@ -140,10 +204,11 @@ def patch(model, conditioning, weights, strength):
         path = f"diffusion_model.layers.{i}.comfy_attention"
         current = model.get_model_object(path)
         if type(current) is not attn.ComfyAttention or current.function is not None or current.config is not None:
-            raise EmphasisError("UNSUPPORTED_ATTENTION_BACKEND", "Configured INT8/SOL/custom attention kernels are not supported in 0.9; the extension will not replace them silently.")
+            raise EmphasisError("UNSUPPORTED_ATTENTION_BACKEND", "Per-layer INT8/SOL/custom ComfyAttention configurations remain unsupported; use only the global --use-ck-attention path.")
         patches.append((path, LocalAttention(current)))
     cloned = model.clone()
     for path, replacement in patches:
         cloned.add_object_patch(path, replacement)
     cloned.add_wrapper_with_key(WrappersMP.DIFFUSION_MODEL, KEY, ForwardState(conditioning[0][0][0], weights, strength))
+    logging.info("[MOSS Emphasis] selected attention backend=%s (original global kernel retained)", backend_kind)
     return cloned

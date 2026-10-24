@@ -1,8 +1,8 @@
-# MOSS Emphasis 0.9
+# MOSS Emphasis 0.9.1
 
 **普通のPositive欄で `(big eyes:0.5)` を使用し、SettingsだけでON/OFF・Strengthを操作するComfyUI拡張です。** 専用のPrompt Weightノードを配置する必要はありません。
 
-> **0.9は試験版です。** CPUの単体・契約テストは実施しましたが、MOSS実モデルのGPU生成、実際のComfyUI画面、Base/SFTや量子化モデルの生成品質は未検証です。完全なV1受入完了とは区別してください。
+> **0.9.1も試験版です。** CPUの単体・契約テストは実施しましたが、MOSS実モデルのGPU生成、実際のComfyUI画面、Base/SFTや量子化モデルの生成品質は未検証です。完全なV1受入完了とは区別してください。
 
 ## インストール
 
@@ -115,13 +115,25 @@ MOSS Layout JSONでは`summary.caption`と`items[].caption`のみ処理します
 
 Base/SFTの手動切替はありません。ファイル名ではなく、ロードされたモデルとCLIPの構造を判定します。
 
-0.9で対応する標準経路は、`CLIPTextEncode → KSampler / KSamplerAdvanced`、および`CLIPTextEncode → CFGGuider → SamplerCustomAdvanced`です。Text Multiline等は、この標準エンコーダーへSTRINGを渡す場合に使用できます。
+0.9.1で対応する標準経路は、`CLIPTextEncode → KSampler / KSamplerAdvanced`、および`CLIPTextEncode → CFGGuider → SamplerCustomAdvanced`です。Text Multiline等は、この標準エンコーダーへSTRINGを渡す場合に使用できます。
 
-**AttentionはPyTorch/basicの契約に限定**しています。INT8/SOL Attention設定付きの`_attn`モデル、Sage/Flashの上書き等を検出した場合、勝手にカーネルを変更せず理由を表示して停止します。量子化「重み」と量子化「Attention」は別です。実際の量子化モデル生成は未検証です。
+**v0.9.1は、通常のPyTorch/basicに加え、起動引数 `--use-ck-attention` で選択される標準Comfy Kitchen INT8 Attentionを許可**します。対象はComfyUI 0.42.1の公式Attention経路です。MOSS公式`SkipLayerGuidanceDiTSimple`および`SkipLayerGuidanceDiT`は、実際に読み込まれた公式関数のコード同一性で識別して許可します。
 
-ModelSamplingSD3と公式SLGの配線・設定は維持しますが、**SLG併用での実GPU一致は未検証**です。EasyUse等の一体型生成経路、Conditioningの平均・連結、Edit/参照画像/Control、NAG、torch.compile、Spectrum/TeaCache等は0.9の対象外です。これらでは拡張をOFFにしてください。
+モデル内`ComfyAttention.config`で指定されたINT8/SOL（`_attn`派生）、Sage/Flashや他のAttention override、独自SLGは**引き続き非対応**です。Kitchenのマスク付き実GPU生成／速度／VRAMは未検証です。Kitchen以外へ無断で切り替えることはありません。
+
+ModelSamplingSD3と公式SLGの配線・設定は維持しますが、**SLG併用での実GPU一致は未検証**です。EasyUse等の一体型生成経路、Conditioningの平均・連結、Edit/参照画像/Control、NAG、torch.compile、Spectrum/TeaCache等は0.9.1の対象外です。これらでは拡張をOFFにしてください。
 
 KJ版や独立版のPrompt Weightノードを同じ経路へ置いたままONにすると、二重適用防止エラーになります。インストールされているだけなら競合しません。
+
+### Illustrious／Anima／Krea2等で使用するとき
+
+この拡張は**MOSS専用**です。SettingsがONでも、対応する通常のCLIP Text Encode→KSampler経路でMOSS以外のモデルをロードしている場合は、Runtimeがモデル構造を確認し、**重み解釈やMOSS用パッチを行わず、入力原文をそのモデル本来のCLIPエンコーダーへ送ります。** Illustriousの既存SDXL強調やAnimaの既存T5系重み処理などを置き換えません。Krea2の標準Qwen3-VLでMOSSの重み処理が使えるようになるわけではありません。
+
+ただし、SettingsがONの場合は**生成前の静的グラフ検証は実行**されます。未知の一体型サンプラー、独自Guider／Conditioning合成等では、非MOSSでも未対応経路として拒否される場合があります。MOSS以外のワークフローではSettingsをOFFにする運用が最も確実です。非MOSSモデルが同じ名称の構文を必ず解釈するとは限りません。
+
+### v0.9.0からの更新
+
+`0.9.0`で保存された`workflow.extra.moss_emphasis`の設定は、`0.9.1`への更新時に読み取れます。ワークフローを作り直す必要はありません。既存のComfyUI本体、モデル、LoRA、設定は変更せず、この拡張フォルダだけ更新してください。
 
 ## 画面には出ない処理について
 

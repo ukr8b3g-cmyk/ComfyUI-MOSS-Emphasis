@@ -1,5 +1,5 @@
 /* Settings are a workflow editor, never process-global execution state. */
-export const VERSION = "0.9.0";
+export const VERSION = "0.9.1";
 export const RUNTIME = "_MossEmphasisRuntimeV1";
 export const IDS = Object.freeze({
   enabled: "MOSSEmphasis.General.Enabled",
@@ -12,7 +12,8 @@ export function normalize(raw = {}) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Invalid MOSS Emphasis settings.");
   const expected = { schema_version: 1, engine: "kj_dit_v1", parser_version: 1, version: VERSION };
   for (const [key, value] of Object.entries(expected)) {
-    if (raw[key] !== undefined && raw[key] !== value) throw new Error(`Unsupported MOSS Emphasis ${key}.`);
+    if (raw[key] !== undefined && (key === "version" ? !["0.9.0", VERSION].includes(raw[key]) : raw[key] !== value))
+      throw new Error(`Unsupported MOSS Emphasis ${key}.`);
   }
   const enabled = raw.enabled === undefined ? false : raw.enabled;
   const strength = raw.strength === undefined ? 1 : raw.strength;

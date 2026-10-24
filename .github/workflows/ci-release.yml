@@ -57,4 +57,4 @@ jobs:
           gh release create "$tag" dist/*.zip dist/SHA256SUMS \
             --target "$GITHUB_SHA" --prerelease \
             --title "MOSS Emphasis ${tag#v} (Beta)" \
-            --notes-file docs/RELEASE_NOTES_0.9.md
+            --notes-file docs/RELEASE_NOTES_0.9.1.md

@@ -22,9 +22,13 @@ def settings(value: dict | None) -> dict:
         value = {}
     if not isinstance(value, dict):
         raise EmphasisError("INVALID_SETTINGS", "Settings must be an object.")
-    for field, expected in (("schema_version", 1), ("engine", ENGINE), ("parser_version", 1), ("version", VERSION)):
+    # A workflow saved by 0.9.0 must remain loadable after the patch release.
+    # Always snapshot the current code version, but accept the known v0.9 input.
+    for field, expected in (("schema_version", 1), ("engine", ENGINE), ("parser_version", 1)):
         if field in value and (type(value[field]) is not type(expected) or value[field] != expected):
             raise EmphasisError("INVALID_SETTINGS", f"Unsupported {field}: {value[field]!r}.")
+    if "version" in value and (type(value["version"]) is not str or value["version"] not in ("0.9.0", VERSION)):
+        raise EmphasisError("INVALID_SETTINGS", f"Unsupported version: {value['version']!r}.")
     enabled, strength = value.get("enabled", False), value.get("strength", 1.0)
     if type(enabled) is not bool or type(strength) not in (int, float) or not math.isfinite(strength) or not 0 <= strength <= 4:
         raise EmphasisError("INVALID_SETTINGS", "enabled must be boolean; strength must be finite and within 0..4.")

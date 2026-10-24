@@ -28,3 +28,12 @@ This beta release does not close the original V1 real-browser/GPU acceptance gat
 ComfyUI's native `custom_nodes/<extension>/locales/ja/main.json` and `locales/ja/settings.json` load through `CustomNodeManager.build_translations()`, and Vue's Settings UI translates category headings, names, help tooltips and combo option labels by setting ID. The values saved in the workflow remain the original stable IDs and English combo option values.
 
 `node --test tests/*.test.mjs` now includes additional static locale-contract checks for all four settings, the General / Advanced / Tools headings and both API export options. **A real running Japanese ComfyUI browser UI has not yet been observed or validated by this test.** The attached screenshot is the English UI supplied by the project user, reproduced as a compressed WebP image.
+
+
+## 0.9.1 SLG and Comfy Kitchen INT8 patch (CPU tests)
+
+- Official SLG provenance logic now checks the real ComfyUI `nodes.py` sibling `comfy_extras/nodes_slg.py`, the loaded module object and the nested `execute` code object. It supports absolute-filepath module names while rejecting an unrelated file merely named `nodes_slg.py`.
+- Comfy Kitchen global INT8 is allowed only if selected as the original `optimized_attention` and the original callable has a working `container_function` (prequantized path). Positive-only value scaling and additive masks are forwarded without swapping to PyTorch. Configured per-layer INT8/SOL remains rejected. Sage/Flash/custom overrides remain rejected.
+- CPU stand-ins assert selected backend, positive/negative isolation, no-mask 0.5, biased-mask 1.5, mixed weights, container consumed once, SLG functions preserved, unknown callbacks refused and no silent float32 fallback.
+- Backward compatibility: 0.9.0 persisted settings are accepted by 0.9.1 backend and UI.
+- **Execution gate:** Python unittest suite now has 92 tests, but **real ComfyUI 0.42.1 MOSS Base/SFT and global Kitchen GPU generation remain unverified**. A simulated kernel receiving tensors is not a real INT8 GPU invocation.

@@ -1,6 +1,6 @@
 # ComfyUI-MOSS-Emphasis
 
-**MOSS Emphasis 0.9 — experimental beta.** Use explicit `(phrase:weight)` syntax in ordinary **CLIP Text Encode** or upstream **Text Multiline** nodes. Configure it in **Settings → MOSS Emphasis**. No prompt-weight node needs to be placed on the canvas.
+**MOSS Emphasis 0.9.1 — experimental beta.** Use explicit `(phrase:weight)` syntax in ordinary **CLIP Text Encode** or upstream **Text Multiline** nodes. Configure it in **Settings → MOSS Emphasis**. No prompt-weight node needs to be placed on the canvas.
 
 [日本語の説明](README_JA.md) · [0.9 release notes](docs/RELEASE_NOTES_0.9.md) · [Validation and limitations](docs/VALIDATION.md)
 
@@ -56,18 +56,25 @@ Explicit and effective weights must be finite decimals within -2..4; maximum 128
 
 **MOSS Layout JSON:** only `summary.caption` and `items[].caption` are interpreted. `items[].text`, boxes, labels and palettes are protected. Do not weight an entire JSON object. Krea2 JSON conversion is not part of this extension.
 
-## 0.9 compatibility boundary
+## 0.9.1 compatibility boundary
 
 Supported execution contracts:
 
 - `CLIPTextEncode → KSampler` or `KSamplerAdvanced`.
 - `CLIPTextEncode → CFGGuider → SamplerCustomAdvanced`.
 - Native MOSS-Image architecture and native MOSS Qwen3.5 CLIP.
-- PyTorch/basic attention contracts; ordinary ModelSamplingSD3 and official SLG wiring are preserved. **Real SLG GPU parity is still unverified.**
+- PyTorch/basic or global Comfy Kitchen INT8 via `--use-ck-attention` (native ComfyUI 0.42.1 interface). Original attention backend is retained; prequantized `AttentionTensorContainer` ownership and additive masks are preserved in the integration contract.
+- Official `SkipLayerGuidanceDiTSimple` and `SkipLayerGuidanceDiT` functions loaded under absolute filesystem module names are allowed using trusted code-object identity, not a brittle module-name string. **Real SLG/Kitchen GPU operation remains unverified.**
 
-Intentionally rejected rather than silently changed: configured INT8/SOL attention (`_attn` checkpoints), Sage/Flash overrides, torch.compile, Spectrum/TeaCache/NAG, MOSS Edit/reference/control/video paths, condition averaging/concatenation/regions/schedules, unknown guiders and integrated custom pipelines. Quantized *weights* are different from quantized *attention*: an otherwise native model with ordinary attention can pass the adapter, but real quantized-model generation remains unverified.
+Intentionally rejected rather than silently changed: per-layer configured INT8/SOL attention (`_attn` checkpoints), Sage/Flash overrides, torch.compile, Spectrum/TeaCache/NAG, MOSS Edit/reference/control/video paths, condition averaging/concatenation/regions/schedules, unknown guiders and integrated custom pipelines. Quantized *weights* are different from quantized *attention*: an otherwise native model with ordinary attention can pass the adapter, but real quantized-model generation remains unverified.
 
 Turn the extension OFF for unsupported workflows. It never changes CFG, steps, seed, sampler, scheduler, Shift, model files or ComfyUI source files. Ordinary non-MOSS model paths pass through at runtime without stripping the text.
+
+## Other model families and saved workflow compatibility
+
+With the standard CLIPTextEncode → KSampler graph, this extension leaves **Illustrious/SDXL, Anima and Krea2** MODEL and original text untouched. MOSS syntax processing is not applied to other architectures. The ordinary encoder retains whatever weighting that model natively supports (Anima's T5 and Qwen branches differ; Krea2 Qwen3-VL ignores standard per-token weights). Advanced or integrated *non-MOSS* graphs may still fail the initial static path checks while Settings is ON; use OFF for non-MOSS workflows to guarantee compatibility.
+
+Settings and prepared graphs saved by version **0.9.0** are accepted and migrated to **0.9.1** without changing existing workflow wiring.
 
 ## API and transparency
 

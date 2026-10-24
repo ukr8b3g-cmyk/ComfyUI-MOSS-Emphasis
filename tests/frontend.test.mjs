@@ -64,3 +64,8 @@ test("in-flight workflow metadata is frozen at submission",async()=>{
  const pending=api.queuePrompt(0,data);data.workflow.extra.moss_emphasis.strength=3;release();await pending;
  assert.equal(calls[0][1].workflow.extra.moss_emphasis.strength,.5);
 });
+
+test("saved 0.9.0 workflow settings migrate without dropping enabled state", () => {
+ const old = normalize({ version:"0.9.0", enabled:true, strength:1.3 });
+ assert.equal(old.version,"0.9.1");assert.equal(old.enabled,true);assert.equal(old.strength,1.3);
+});

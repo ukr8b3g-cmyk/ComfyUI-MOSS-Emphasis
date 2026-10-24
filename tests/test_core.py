@@ -21,6 +21,10 @@ class SettingsTests(unittest.TestCase):
     def test_range(self):
         for v in [-1, 4.1, True, "1", math.inf, math.nan]:
             with self.subTest(v=v), self.assertRaises(EmphasisError): settings({"strength": v})
+    def test_legacy_version_migrates(self):
+        self.assertEqual(settings({"version": "0.9.0", "enabled": True})["version"], "0.9.1")
+        self.assertEqual(settings({"version": "0.9.1", "enabled": True})["version"], "0.9.1")
+
     def test_version(self):
         for v in [{"version": "other"}, {"engine": "log"}, {"schema_version": 2}, {"enabled": 1}]:
             with self.subTest(v=v), self.assertRaises(EmphasisError): settings(v)
