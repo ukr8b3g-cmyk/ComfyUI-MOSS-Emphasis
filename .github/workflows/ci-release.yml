@@ -1,0 +1,60 @@
+name: Test and release
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: moss-emphasis-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Install existing ComfyUI dependencies for CPU tests only
+        run: |
+          python -m pip install torch==2.10.0 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install aiohttp==3.13.3
+      - name: Python CPU and API tests
+        run: |
+          python -c "import torch, aiohttp"
+          python -m unittest discover -s tests -v
+          python -m compileall -q moss_emphasis __init__.py
+      - name: Frontend contract tests
+        run: |
+          node --test tests/frontend.test.mjs
+          node --check web/moss_emphasis.js
+      - name: Package and verify archive
+        run: python scripts/package.py
+  release:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: python scripts/package.py
+      - name: Publish immutable beta release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$(cat RELEASE_TAG)"
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || exit 1
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release already exists; not moving its tag or replacing assets."
+            exit 0
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "Tag already exists without a release; manual review required."
+            exit 1
+          fi
+          gh release create "$tag" dist/*.zip dist/SHA256SUMS \
+            --target "$GITHUB_SHA" --prerelease \
+            --title "MOSS Emphasis ${tag#v} (Beta)" \
+            --notes-file docs/RELEASE_NOTES_0.9.md

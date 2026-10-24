@@ -1,0 +1,10 @@
+[project]
+name = "comfyui-moss-emphasis"
+version = "0.9.0"
+description = "Settings-controlled MOSS-Image prompt weights for ordinary ComfyUI text inputs"
+requires-python = ">=3.10"
+license = {file = "LICENSE"}
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/ukr8b3g-cmyk/ComfyUI-MOSS-Emphasis"

@@ -1,0 +1,78 @@
+# MOSS Emphasis 0.9
+
+**普通のPositive欄で `(big eyes:0.5)` を使用し、SettingsだけでON/OFF・Strengthを操作するComfyUI拡張です。** 専用のPrompt Weightノードを配置する必要はありません。
+
+> **0.9は試験版です。** CPUの単体・契約テストは実施しましたが、MOSS実モデルのGPU生成、実際のComfyUI画面、Base/SFTや量子化モデルの生成品質は未検証です。完全なV1受入完了とは区別してください。
+
+## インストール
+
+ComfyUIの `custom_nodes` フォルダで次を実行します。
+
+```sh
+git clone https://github.com/ukr8b3g-cmyk/ComfyUI-MOSS-Emphasis.git
+```
+
+ZIPの場合は `custom_nodes/ComfyUI-MOSS-Emphasis/__init__.py` となるよう展開します。二重フォルダにしないでください。ComfyUIを再起動し、ブラウザーを再読み込みします。**追加のpip依存・モデル・LLM・KJNodesは不要**です。
+
+ComfyUI本体のネイティブMOSS-Image対応と、現行のAttention/Settingsインターフェースを前提とします。OpenMOSSの独立HFロード用プラグインには0.9では対応しません。
+
+## 使い方
+
+従来の配線を維持します。
+
+```text
+Text Multiline / CSV / 文字列結合（必要な場合）
+        ↓
+普通の CLIP Text Encode
+        ↓
+KSampler の positive
+```
+
+Settings → **MOSS Emphasis** を開き、`Enable prompt weighting`をON、`Strength`を1.00にします。Positive欄へ、例えば次のように入力します。
+
+```text
+portrait, (big eyes:0.5), (long hair:1.2), soft lighting
+```
+
+設定は**現在のワークフロー単位**です。新規ワークフローは必ずOFFです。保存・読み戻し時はそのワークフローの設定を使用し、キュー投入後にStrengthを変えても投入済みジョブには影響しません。
+
+| 設定 | 意味 |
+|---|---|
+| Enable prompt weighting | ON/OFF。初期値OFF |
+| Strength | 全指定への作用。0〜4、初期値1。大きい値は抑制・負の重みも強くします |
+| Diagnostic logging | 設定・対象IDを記録。プロンプト全文は記録しません |
+| API export | 拡張適用済みの実行用API JSONを書き出します |
+
+OFFとStrength=0は**構文除去も含め完全バイパス**です。既存KJ版のStrength=0とはこの点が異なります。Negative欄は元の経路のままです。この拡張がNegative欄の重み構文へ機能を追加するわけではありません。
+
+## 重みの意味
+
+`0.5`は目の大きさを半分にする指定ではありません。KJ方式の数式に従い、1以下では対象トークンのValue、1超ではAttentionスコアへ作用します。`0`や負数も概念を完全に消す保証はありません。
+
+作品名の括弧は保持します。`saber (fate)`は普通の文字列、`(saber (fate):1.2)`は句全体の強調です。`(word)`だけでは暗黙の1.1倍強調を行いません。入れ子の明示重みは積算します。同じ単語が複数回あっても、指定した出現だけが対象です。
+
+個別・実効重みは-2〜4、入れ子は16階層、重みグループは128個までです。文字として使うコロンや括弧が重み構文に見える場合はバックスラッシュでエスケープします。
+
+MOSS Layout JSONでは`summary.caption`と`items[].caption`のみ処理します。看板等に描く`items[].text`、BBOX座標、その他の値を強調構文として処理しません。
+
+## 対応範囲と注意
+
+Base/SFTの手動切替はありません。ファイル名ではなく、ロードされたモデルとCLIPの構造を判定します。
+
+0.9で対応する標準経路は、`CLIPTextEncode → KSampler / KSamplerAdvanced`、および`CLIPTextEncode → CFGGuider → SamplerCustomAdvanced`です。Text Multiline等は、この標準エンコーダーへSTRINGを渡す場合に使用できます。
+
+**AttentionはPyTorch/basicの契約に限定**しています。INT8/SOL Attention設定付きの`_attn`モデル、Sage/Flashの上書き等を検出した場合、勝手にカーネルを変更せず理由を表示して停止します。量子化「重み」と量子化「Attention」は別です。実際の量子化モデル生成は未検証です。
+
+ModelSamplingSD3と公式SLGの配線・設定は維持しますが、**SLG併用での実GPU一致は未検証**です。EasyUse等の一体型生成経路、Conditioningの平均・連結、Edit/参照画像/Control、NAG、torch.compile、Spectrum/TeaCache等は0.9の対象外です。これらでは拡張をOFFにしてください。
+
+KJ版や独立版のPrompt Weightノードを同じ経路へ置いたままONにすると、二重適用防止エラーになります。インストールされているだけなら競合しません。
+
+## 画面には出ない処理について
+
+編集画面のノード・配線は変更しません。ただし送信する実行用グラフには内部ノードを追加します。**実行履歴/API JSONには内部ノードが現れます。** 設定を内部ノードの入力へ含めることで、Strength変更をキャッシュへ反映します。
+
+通常の「API形式で保存」では適用処理を含まない場合があります。再現用には本拡張のSettingsにあるAPI exportを使用してください。画像へのメタデータ保存が元からONなら、編集用ワークフローと実行用グラフを既存経路で保存します。保存OFFを勝手にONにはしません。
+
+削除・無効化する場合は、まずSettingsでOFFにして保存し、ComfyUIを停止してこの拡張フォルダを外します。本体やモデルファイルの復元作業は不要です。
+
+検証内容：[VALIDATION.md](docs/VALIDATION.md)。仕様：[SPEC_0.9.md](docs/SPEC_0.9.md)。GPL-3.0-only。
