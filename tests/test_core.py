@@ -118,6 +118,21 @@ class GraphTests(unittest.TestCase):
     def test_slg_preserved(self):
         g=graph();g["6"]={"class_type":"SkipLayerGuidanceDiTSimple","inputs":{"model":["1",0],"single_layers":"22"}};g["5"]["inputs"]["model"]=["6",0]
         r=prepare(g,ON);self.assertEqual(r["prompt"]["6"],g["6"])
+    def test_manager_name_is_not_a_nag_adapter(self):
+        for kind in ("Manager", "CheckpointManager", "WorkflowManager"):
+            with self.subTest(kind=kind):
+                g = graph()
+                g["6"] = {"class_type": kind, "inputs": {"model": ["1", 0]}}
+                g["5"]["inputs"]["model"] = ["6", 0]
+                self.assertEqual(len(prepare(g, ON)["targets"]), 1)
+    def test_actual_nag_adapters_remain_blocked(self):
+        for kind in ("NAGAdapter", "ApplyNagModel", "nag_adapter", "Krea2NormalizedAttentionGuidance"):
+            with self.subTest(kind=kind):
+                g = graph()
+                g["6"] = {"class_type": kind, "inputs": {"model": ["1", 0]}}
+                g["5"]["inputs"]["model"] = ["6", 0]
+                with self.assertRaisesRegex(EmphasisError, "UNSUPPORTED_MODEL_ADAPTER"):
+                    prepare(g, ON)
     def test_diagnostic_cache(self):self.assertEqual(prepare(graph(),ON),prepare(graph(),{**ON,"diagnostic":True}))
     def test_malformed_restored(self):
         r=prepare(graph(),ON)["prompt"];r["3"]["inputs"]["text"]="changed"

@@ -69,3 +69,53 @@ test("saved 0.9.0 workflow settings migrate without dropping enabled state", () 
  const old = normalize({ version:"0.9.0", enabled:true, strength:1.3 });
  assert.equal(old.version,"0.9.1");assert.equal(old.enabled,true);assert.equal(old.strength,1.3);
 });
+
+test("an obsolete Settings restore cannot overwrite the active workflow", async () => {
+  const { c, app, store } = fixture({ enabled: true, strength: 1 });
+  const write = store.set.bind(store);
+  let started, resume;
+  const firstWriteStarted = new Promise(resolve => { started = resolve; });
+  const firstWriteGate = new Promise(resolve => { resume = resolve; });
+  let delayed = false;
+  store.set = async (id, value) => {
+    if (!delayed && id === IDS.enabled && value === true) {
+      delayed = true;
+      started();
+      await firstWriteGate;
+    }
+    return write(id, value);
+  };
+
+  const earlier = c.restore();
+  await firstWriteStarted;
+  app.rootGraph = { extra: { moss_emphasis: normalize({ enabled: false, strength: 2 }) } };
+  const later = c.restore();
+  assert.equal(c.ready, false);
+  resume();
+  await Promise.all([earlier, later]);
+
+  assert.equal(store.values[IDS.enabled], false);
+  assert.equal(store.values[IDS.strength], 2);
+  assert.equal(store.values[IDS.diagnostic], false);
+  assert.equal(c.ready, true);
+});
+
+test("failed Settings restore leaves controller read-only until a successful retry", async () => {
+  const { c, app, store } = fixture({ enabled: true, strength: 1.5 });
+  const write = store.set.bind(store);
+  store.set = async (id, value) => {
+    if (id === IDS.strength) throw new Error("Settings write failed");
+    return write(id, value);
+  };
+
+  await assert.rejects(c.restore(), /Settings write failed/);
+  assert.equal(c.ready, false);
+  c.change("enabled", false);
+  assert.equal(app.rootGraph.extra.moss_emphasis.enabled, true);
+
+  store.set = write;
+  await c.restore();
+  assert.equal(c.ready, true);
+  assert.equal(store.values[IDS.enabled], true);
+  assert.equal(store.values[IDS.strength], 1.5);
+});

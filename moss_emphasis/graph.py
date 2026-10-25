@@ -3,11 +3,14 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import re
 from .config import EmphasisError, RUNTIME, settings, canonical
 
 TARGETS = {"KSampler", "KSamplerAdvanced", "CFGGuider"}
 CONFLICTS = {"MossImagePromptWeight", "MOSSImagePromptWeight"}
-FORBIDDEN = ("torchcompile", "teacache", "spectrum", "nag", "mossimagecontrol", "textencodemossimageedit")
+FORBIDDEN = ("torchcompile", "teacache", "spectrum", "normalizedattentionguidance", "mossimagecontrol", "textencodemossimageedit")
+# Match the NAG acronym as a node-name component, not inside words like "Manager".
+NAG_MARKER = re.compile(r"NAG|Nag|(?:^|[^A-Za-z])nag")
 
 
 def link(value):
@@ -103,7 +106,8 @@ def prepare(prompt: dict, config: dict) -> dict:
             for upstream, data in _ancestors(result, inputs[name][0]):
                 if data["class_type"] in CONFLICTS:
                     raise EmphasisError("DUPLICATE_WEIGHT_ENGINE", "An existing prompt-weight node is on this execution path.", upstream)
-                if any(word in data["class_type"].lower() for word in FORBIDDEN):
+                upstream_kind = data["class_type"]
+                if any(word in upstream_kind.lower() for word in FORBIDDEN) or NAG_MARKER.search(upstream_kind):
                     raise EmphasisError("UNSUPPORTED_MODEL_ADAPTER", "Edit/control/compile/acceleration/NAG combinations are not supported in 0.9.", upstream)
         encoder = inputs["positive"][0]
         enc = result[encoder]

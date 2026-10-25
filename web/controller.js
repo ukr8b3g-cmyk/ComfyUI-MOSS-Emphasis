@@ -31,31 +31,37 @@ export function hideRuntime(defs) {
 export class Controller {
   constructor(app, api, notify = console.error) {
     this.app = app; this.api = api; this.notify = notify;
-    this.ready = false; this.syncing = 0; this.epoch = 0;
+    this.ready = false; this.epoch = 0; this.restoreTail = Promise.resolve();
   }
   get graph() { return this.app.rootGraph ?? this.app.graph; }
   get store() { return this.app.extensionManager?.setting; }
 
-  async restore() {
+  restore() {
     const epoch = ++this.epoch;
-    this.ready = false; this.syncing++;
-    try {
-      let snapshot;
-      try { snapshot = normalize(this.graph?.extra?.moss_emphasis); }
-      catch (error) { this.notify(error.message); snapshot = normalize(); }
+    this.ready = false;
+    let snapshot;
+    try { snapshot = normalize(this.graph?.extra?.moss_emphasis); }
+    catch (error) { this.notify(error.message); snapshot = normalize(); }
+
+    // Serialize Settings writes: an older in-flight set() must finish before
+    // the newest workflow can apply its values.
+    const apply = async () => {
+      if (epoch !== this.epoch) return;
       if (!this.store?.set) throw new Error("INCOMPATIBLE_FRONTEND: Settings API is unavailable.");
       for (const name of ["enabled", "strength", "diagnostic"]) {
         if (epoch !== this.epoch) return;
         await this.store.set(IDS[name], snapshot[name]);
       }
-    } finally {
-      this.syncing--;
       if (epoch === this.epoch) this.ready = true;
-    }
+    };
+    const pending = this.restoreTail.then(apply);
+    // Keep later restores runnable even if an earlier Settings write failed.
+    this.restoreTail = pending.catch(() => {});
+    return pending;
   }
 
   change(name, value) {
-    if (!this.ready || this.syncing || !this.graph) return;
+    if (!this.ready || !this.graph) return;
     const graph = this.graph;
     const snapshot = normalize({ ...(graph.extra?.moss_emphasis ?? {}), [name]: value });
     graph.beforeChange?.();
