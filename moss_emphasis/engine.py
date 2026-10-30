@@ -144,12 +144,12 @@ class ForwardState:
         return executor(x, timestep, context, options, **kwargs)
 
 
-def is_native_moss(model):
+def is_native_moss(model, strict=True):
     diffusion = model.get_model_object("diffusion_model")
     cls = type(diffusion)
     if cls.__module__ == "comfy.ldm.moss_image.model" and cls.__name__ == "MOSSImage":
         return True
-    if "moss" in (cls.__module__ + "." + cls.__name__).lower():
+    if strict and "moss" in (cls.__module__ + "." + cls.__name__).lower():
         raise EmphasisError("UNSUPPORTED_MODEL_ADAPTER", "Use ComfyUI's native MOSS-Image loader; this MOSS implementation is unsupported.")
     return False
 

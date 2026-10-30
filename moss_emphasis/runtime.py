@@ -69,7 +69,7 @@ class RuntimeV2(Runtime):
             raise EmphasisError("INVALID_SETTINGS", "Runtime V2 requires model-auto settings.", source)
         if not config["enabled"] or active_strength(config) == 0:
             return model, clip.encode_from_tokens_scheduled(clip.tokenize(text)), negative
-        if is_native_moss(model):
+        if is_native_moss(model, strict=False):
             legacy = {**config, "schema_version": 2,
                       "engine": NEGPIP if config["engine"] == AUTO_NEGPIP else ENGINE}
             weighted_model, cond = super().execute(model, clip, text, json.dumps(legacy), source)

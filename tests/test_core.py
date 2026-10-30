@@ -22,8 +22,17 @@ class SettingsTests(unittest.TestCase):
         for v in [-1, 4.1, True, "1", math.inf, math.nan]:
             with self.subTest(v=v), self.assertRaises(EmphasisError): settings({"strength": v})
     def test_legacy_version_migrates(self):
-        self.assertEqual(settings({"version": "0.9.0", "enabled": True})["version"], "0.9.1")
-        self.assertEqual(settings({"version": "0.9.1", "enabled": True})["version"], "0.9.1")
+        self.assertEqual(settings({"version": "0.9.0", "enabled": True})["version"], "0.10.0")
+        self.assertEqual(settings({"version": "0.9.1", "enabled": True})["version"], "0.10.0")
+
+    def test_prior_auto_and_negpip_settings_keep_scope_on_version_upgrade(self):
+        for schema, engine in ((2, "ppm_negpip_moss_v1"), (3, "negpip_auto_v1")):
+            old = {"version": "0.9.1", "schema_version": schema, "engine": engine,
+                   "enabled": True, "strength": .7, "negpip_strength": .4}
+            migrated = settings(old)
+            self.assertEqual(migrated["version"], "0.10.0")
+            for key in ("schema_version", "engine", "enabled", "strength", "negpip_strength"):
+                self.assertEqual(migrated[key], old[key])
 
     def test_version(self):
         for v in [{"version": "other"}, {"engine": "log"}, {"schema_version": 3}, {"enabled": 1}]:

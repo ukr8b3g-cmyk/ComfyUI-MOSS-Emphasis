@@ -1,12 +1,12 @@
-# Validation — current development branch (2026-10-31)
+# Validation — v0.10.0 (2026-10-31)
 
 CPU verification on Windows, installed ComfyUI **0.43.0**, commit `426f5eea52a7ece1dd599fff4cb6cd1f352ddd24`. No checkpoints were loaded or downloaded for these tests.
 
 | Gate | Result |
 |---|---|
-| Python unit/regression suite | 121 passed, including legacy MOSS and transactional schema-3 graphs |
-| Frontend/locale suite | 40 passed; workflow restoration, method changes, migration, queue/export and stale backend handling |
-| Real ComfyUI CPU contracts | 11 passed; native SDXL/Anima tokenizers and token-weight encoders, ModelPatcher clone/hooks, conditioning batching, V3 node registration, real small attention modules |
+| Python unit/regression suite | 122 passed, including legacy MOSS, transactional schema-3 graphs and prior-version settings |
+| Frontend/locale suite | 42 passed; workflow restoration, method changes, migration, queue/export and stale backend handling |
+| Real ComfyUI CPU contracts | 12 passed; native SDXL/Anima tokenizers and token-weight encoders, ModelPatcher clone/hooks, conditioning batching, V3 node registration, real small attention modules and unsupported-model bypass |
 | Pinned PPM SDXL comparison | 6 prompts, including empty, unit/zero/negative/large weights, nested syntax and multiple CLIP chunks; K/V and pooled agree at float64 tolerance 1e-12 |
 | Pinned PPM Anima comparison | 4 prompts × 2 preprocessing routes; context and Value-sign metadata agree exactly after matching dtype |
 | MOSS pinned PPM comparison | 48 cases; maximum absolute error 4.45e-16 |
@@ -18,6 +18,8 @@ Model-auto settings use schema 3 and a private V3-API runtime. Old schema 1/2 an
 
 ### Reproduce
 
+Unsupported-model regression: both auto engines bypass Krea2, SDXL Refiner and unknown native model types, including an unrecognized MOSS diffusion implementation. Original MODEL/Negative identity and native positive/pooled values are preserved, existing patches remain untouched, and saved settings are unchanged. Returning to a supported model resumes the selected method; a wrong CLIP for a supported MODEL still fails explicitly. Legacy schema 1/2 behavior and execution-graph restrictions are unchanged.
+
 ```sh
 python -B -m unittest discover -s tests
 node --test tests/frontend.test.mjs tests/locales.test.mjs
@@ -28,7 +30,7 @@ For independent PPM comparisons, optionally pass `--reference-dir /path/to/exter
 
 ### Unperformed gates
 
-New-adapter checkpoint loading, GPU image/quality comparison, real GPU backend speed/VRAM, installed browser Settings rendering and live workflow tab/PNG restoration. Unit/frontend doubles and real CPU module contracts do not establish these results. No GPU generation or service restart is performed by the tests. Existing releases/tags/Registry versions are unchanged.
+New-adapter checkpoint loading, GPU image/quality comparison, real GPU backend speed/VRAM, installed browser Settings rendering and live workflow tab/PNG restoration. Unit/frontend doubles and real CPU module contracts do not establish these results. No GPU generation or service restart is performed by the tests. Version 0.10.0 packages these changes; previous releases/tags are retained and Registry publishing is separate.
 
 ## Historical validation report — 0.9
 

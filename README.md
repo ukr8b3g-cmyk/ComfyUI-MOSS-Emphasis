@@ -1,10 +1,10 @@
-# ComfyUI-MOSS-Emphasis
+# ComfyUI-MOSS-Emphasis v0.10.0
 
 [日本語](README_JA.md) · [Validation](docs/VALIDATION.md) · [Attribution](NOTICE.md)
 
 Prompt weighting and **NegPiP** from **Settings → MOSS Emphasis**, using ordinary **CLIP Text Encode**. No prompt-weight node needs to be placed on the canvas.
 
-The development branch adds native **SDXL / Illustrious and Anima** alongside MOSS-Image. These additions are CPU-tested experimental functionality; the existing **0.9.1 release/tag is unchanged**. GPU quality, speed and VRAM for the new adapters have not been tested.
+**v0.10.0 includes NegPiP** for three model families: **native MOSS-Image, SDXL / Illustrious, and native Anima**. In auto model mode, **every other architecture automatically bypasses this extension**, including Qwen-Image, FLUX, SD1.5, SD3, Krea2 and SDXL Refiner; ordinary generation continues. These are CPU-tested experimental features. GPU quality, speed and VRAM for the new adapters have not been tested. [Release notes](docs/RELEASE_NOTES_0.10.0.md).
 
 ## Install / update
 
@@ -43,7 +43,11 @@ The selected strength/effect at **0**, or master OFF, bypasses the extension com
 | Native MOSS-Image Base / SFT | Existing KJ-style Value scaling / attention bias | PPM-reference log-absolute-weight bias and Value sign | Existing arithmetic preserved; CPU regressions |
 | Native SDXL Base / Illustrious | Native CLIP-L/G weighting | Absolute CLIP weights, separate Key/Value; negative weights reverse Value | CPU tokenization, encoding, batching and real attention-module tests |
 | Native Anima | Native T5 token weights after the Qwen adapter | Absolute T5 weights and negative-token Value sign | CPU preprocessing, deferred forward, padding, batching and real attention-module tests |
-| Krea2, SDXL Refiner, other architectures | Unsupported in auto mode | Unsupported | Turn this extension OFF |
+| Qwen-Image, FLUX, SD1.5, SD3, Krea2, SDXL Refiner, all other architectures | Automatically bypassed | Automatically bypassed | Ordinary model processing continues |
+
+In auto model mode, unsupported architectures skip this extension's weighting and attention patches, preserving the original text, MODEL and Negative. The saved ON/OFF and method settings stay intact; switching back to a supported model activates the selected method again. The server log records the bypass. A supported MODEL with the wrong CLIP still produces a mismatch error. Graph/conditioning compatibility checks still apply; automatic model bypass does not add support for integrated custom samplers or unsupported graph layouts.
+
+Qwen-Image here means the image-generation architecture. MOSS and Anima may use a Qwen text encoder; the encoder name alone does not make them unsupported.
 
 Illustrious uses the native SDXL architecture route, not a filename allowlist. No Illustrious/Anima checkpoint was loaded for these tests. Anima uses existing T5 **tokenizer metadata**; this extension does not load a T5 encoder model. MODEL and CLIP must be a matching native pair.
 

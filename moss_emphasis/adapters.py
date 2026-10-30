@@ -4,6 +4,7 @@ The native encoder owns empty-prompt interpolation, pooling and CLIP options.
 Only token coefficients and the K/V transport are implemented here.
 """
 import math
+import logging
 import torch
 from .config import EmphasisError, active_strength, AUTO_NEGPIP
 
@@ -21,7 +22,7 @@ def model_family(model, clip):
     elif type(model.model) is model_base.Anima:
         family, tokenizer, encoder = "anima", AnimaTokenizer, AnimaTEModel
     else:
-        raise EmphasisError("UNSUPPORTED_MODEL_ADAPTER", "Use native MOSS-Image, SDXL/Illustrious or Anima, or disable MOSS Emphasis.")
+        return None
     if type(clip.tokenizer) is not tokenizer or not isinstance(clip.cond_stage_model, encoder):
         raise EmphasisError("ENCODER_MODEL_MISMATCH", f"Use the native {family} MODEL and CLIP combination.")
     return family
@@ -132,6 +133,9 @@ def patch_anima(model):
 
 def encode_native(model, clip, text, negative, config):
     family = model_family(model, clip)
+    if family is None:
+        logging.info("[MOSS Emphasis] bypassed unsupported model=%s", type(model.model).__name__)
+        return model, clip.encode_from_tokens_scheduled(clip.tokenize(text)), negative
     negpip = config["engine"] == AUTO_NEGPIP
     strength = active_strength(config)
     check_patches(model, clip, negpip)

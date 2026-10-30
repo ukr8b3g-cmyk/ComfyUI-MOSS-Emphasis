@@ -26,8 +26,7 @@ def settings(value: dict | None) -> dict:
         value = {}
     if not isinstance(value, dict):
         raise EmphasisError("INVALID_SETTINGS", "Settings must be an object.")
-    # A workflow saved by 0.9.0 must remain loadable after the patch release.
-    # Always snapshot the current code version, but accept the known v0.9 input.
+    # Retain saved v0.9 settings while snapshotting the current code version.
     schema = value.get("schema_version", 1)
     engine = value.get("engine", ENGINE)
     engines = {1: (ENGINE,), 2: (ENGINE, NEGPIP), 3: (AUTO_ENGINE, AUTO_NEGPIP)}
@@ -36,7 +35,7 @@ def settings(value: dict | None) -> dict:
     for field, expected in (("parser_version", 1), ("engine_version", 1)):
         if field in value and (type(value[field]) is not type(expected) or value[field] != expected):
             raise EmphasisError("INVALID_SETTINGS", f"Unsupported {field}: {value[field]!r}.")
-    if "version" in value and (type(value["version"]) is not str or value["version"] not in ("0.9.0", VERSION)):
+    if "version" in value and (type(value["version"]) is not str or value["version"] not in ("0.9.0", "0.9.1", VERSION)):
         raise EmphasisError("INVALID_SETTINGS", f"Unsupported version: {value['version']!r}.")
     enabled, strength = value.get("enabled", False), value.get("strength", 1.0)
     if type(enabled) is not bool or type(strength) not in (int, float) or not math.isfinite(strength) or not 0 <= strength <= 4:

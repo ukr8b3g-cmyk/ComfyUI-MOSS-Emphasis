@@ -68,7 +68,20 @@ test("in-flight workflow metadata is frozen at submission",async()=>{
 
 test("saved 0.9.0 workflow settings migrate without dropping enabled state", () => {
  const old = normalize({ version:"0.9.0", enabled:true, strength:1.3 });
- assert.equal(old.version,"0.9.1");assert.equal(old.enabled,true);assert.equal(old.strength,1.3);
+ assert.equal(old.version,"0.10.0");assert.equal(old.enabled,true);assert.equal(old.strength,1.3);
+});
+
+test("version upgrade preserves old NegPiP mode and auto scope",()=>{
+ for(const [schema,engine] of [[2,"ppm_negpip_moss_v1"],[3,"negpip_auto_v1"]]){
+   const old={version:"0.9.1",schema_version:schema,engine,enabled:true,strength:.7,negpip_strength:.4};
+   const value=normalize(old);assert.equal(value.version,"0.10.0");
+   for(const key of ["schema_version","engine","enabled","strength","negpip_strength"])assert.equal(value[key],old[key]);
+ }
+});
+test("older running backend version rejection gives restart instructions",async()=>{
+ const {api,app,calls}=fixture({schema_version:3,engine:"negpip_auto_v1",enabled:true});
+ api.fetchApi=async()=>({ok:false,json:async()=>({error:{code:"INVALID_SETTINGS",message:"Unsupported version: '0.10.0'."}})});
+ await assert.rejects(api.queuePrompt(0,await app.graphToPrompt()),/BACKEND_RESTART_REQUIRED/);assert.equal(calls.length,0);
 });
 
 test("NegPiP selected strength controls preparation and full bypass",async()=>{

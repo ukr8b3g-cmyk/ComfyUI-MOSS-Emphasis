@@ -142,8 +142,37 @@ class NativeContracts(unittest.TestCase):
         # SDXL-family checkpoint names do not participate in detection.
         for unsupported in (mb.SDXLRefiner, mb.Krea2, mb.BaseModel):
             native = unsupported.__new__(unsupported); torch.nn.Module.__init__(native)
-            with self.assertRaisesRegex(EmphasisError, "UNSUPPORTED_MODEL_ADAPTER"):
-                model_family(ModelPatcher(native, CPU, CPU), Clip())
+            self.assertIsNone(model_family(ModelPatcher(native, CPU, CPU), Clip()))
+
+    def test_unsupported_models_bypass_both_methods_and_resume_supported(self):
+        unknown = type("OtherMOSS", (torch.nn.Module,), {"__module__": "custom_moss.model"})
+        for unsupported in (mb.Krea2, mb.SDXLRefiner, mb.BaseModel, mb.QwenImage, mb.Flux, mb.SD3):
+            for engine in (AUTO_ENGINE, AUTO_NEGPIP):
+                native = unsupported.__new__(unsupported); torch.nn.Module.__init__(native)
+                native.diffusion_model = unknown()
+                m = ModelPatcher(native, CPU, CPU)
+                c = Clip()
+                # Even upstream attention patches remain untouched for an unsupported model.
+                m.set_model_attn2_patch(lambda *a: a)
+                options = copy.deepcopy(m.model_options)
+                cfg = {**ON, "engine": engine}; original_cfg = dict(cfg)
+                text = "(red:-5) red (blue:0)"
+                negative = c.encode_from_tokens_scheduled(c.tokenize("bad"))
+                expected = c.encode_from_tokens_scheduled(c.tokenize(text))
+                with self.assertLogs(level="INFO") as logs:
+                    result, positive, neg = run(m, c, text, cfg, negative)
+                self.assertIn("bypassed unsupported model", logs.output[0])
+                self.assertIs(result, m); self.assertIs(neg, negative)
+                self.assertEqual(m.model_options, options)
+                self.assertEqual(cfg, original_cfg)
+                torch.testing.assert_close(positive[0][0], expected[0][0], atol=0, rtol=0)
+                torch.testing.assert_close(positive[0][1]["pooled_output"], expected[0][1]["pooled_output"], atol=0, rtol=0)
+                # No persisted auto-OFF: switching back uses the selected method immediately.
+                supported = model()
+                active, _, _ = run(supported, c, text, cfg, negative)
+                if engine == AUTO_NEGPIP: self.assertIsNot(active, supported)
+                with self.assertRaisesRegex(EmphasisError, "ENCODER_MODEL_MISMATCH"):
+                    run(model("anima"), c, text, cfg, negative)
 
     def test_v3_registration_and_prepared_execution_contract(self):
         from aiohttp import web

@@ -1,10 +1,10 @@
-# ComfyUI-MOSS-Emphasis
+# ComfyUI-MOSS-Emphasis v0.10.0
 
 [English](README.md) · [検証結果](docs/VALIDATION.md) · [参照元](NOTICE.md)
 
 **Settings → MOSS Emphasis**で、通常の重み付けと**NegPiP**を切り替える拡張です。普通の**CLIP Text Encode**を使い、専用ノードをキャンバスへ置く必要はありません。
 
-開発ブランチでは、MOSS-Imageに加えて**SDXL／Illustrious・標準Anima**へ対応しました。追加機能はCPU検証段階の試験版です。既存の**0.9.1 Release／タグは未更新**で、新アダプターのGPU画質・速度・VRAMは未検証です。
+**v0.10.0はNegPiPを搭載**し、**標準MOSS-Image、SDXL／Illustrious、標準Animaの3系統**に対応します。自動判定モードでは、**それ以外のモデルは本拡張を自動で無効化（バイパス）**し、標準処理で生成を続けます。Qwen-Image・FLUX・SD1.5・SD3・Krea2・SDXL Refinerなども対象です。CPU検証段階の試験版で、新アダプターのGPU画質・速度・VRAMは未検証です。[リリースノート](docs/RELEASE_NOTES_0.10.0.md)。
 
 ## インストール・更新
 
@@ -43,7 +43,11 @@ git clone https://github.com/ukr8b3g-cmyk/ComfyUI-MOSS-Emphasis.git
 | 標準MOSS-Image Base／SFT | 既存KJ式のValue倍率・Attention bias | PPM参照のlog絶対値bias・Value符号 | 従来の計算を維持、CPU回帰確認 |
 | 標準SDXL Base系／Illustrious系 | 標準CLIP-L／Gの重み | 絶対値重み＋Key／Value分離、負の語のValue反転 | 実tokenizer・encoder処理・batch・小さな実AttentionのCPU確認 |
 | 標準Anima | Qwenアダプター後のT5トークン重み | T5重みの絶対値＋負の語のValue反転 | 前処理／forward・padding・batch・小さな実AttentionのCPU確認 |
-| Krea2・SDXL Refiner・その他 | 自動判定モードでは未対応 | 未対応 | 本拡張をOFFにする |
+| Qwen-Image・FLUX・SD1.5・SD3・Krea2・SDXL Refinerなど、上記以外すべて | 自動でバイパス | 自動でバイパス | モデル標準の処理で生成を続行 |
+
+自動判定モードでは、未対応モデルの重み付け・Attention変更をスキップし、原文・MODEL・Negativeを標準処理へ渡します。保存済みのON/OFFや方式は書き換えず、対応モデルへ戻すと選択中の方式が再び働きます。スキップはサーバーログに記録します。対応MODELとCLIPの不一致は引き続きエラーです。実行グラフ・Conditioningの対応範囲チェックは残るため、一体型サンプラーなどの未対応配線まで自動対応するものではありません。
+
+ここでのQwen-Imageは画像生成モデルのことです。MOSSやAnimaが文章エンコーダーにQwenを使うこととは別で、エンコーダー名だけで無効にはしません。
 
 Illustriousは標準SDXLの構造として扱います。検証ではIllustrious／Animaのチェックポイント自体はロードしていません。Animaは既存のT5 **tokenizer由来の情報**を使い、T5エンコーダーモデルを追加ロードしません。MODELとCLIPは同じモデル向けの標準ペアを使ってください。
 
