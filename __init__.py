@@ -1,4 +1,4 @@
-"""ComfyUI-MOSS-Emphasis 0.10.0: Settings UI, no manually placed prompt node."""
+"""ComfyUI-MOSS-Emphasis 0.10.1: Settings UI, no manually placed prompt node."""
 from .moss_emphasis.config import RUNTIME, RUNTIME_V2
 from .moss_emphasis.runtime import Runtime, RuntimeV2
 from .moss_emphasis.api import install_routes

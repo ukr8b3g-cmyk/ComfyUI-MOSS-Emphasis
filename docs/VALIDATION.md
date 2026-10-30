@@ -1,12 +1,14 @@
-# Validation — v0.10.0 (2026-10-31)
+# Validation — v0.10.1 (2026-10-31)
+
+Version 0.10.1 includes the audit fixes below. The published v0.10.0 ZIP/tag remains unchanged. Prior 0.9.0/0.9.1/0.10.0 settings preserve their selected method, strengths and model scope when loaded by the new backend/frontend.
 
 CPU verification on Windows, installed ComfyUI **0.43.0**, commit `426f5eea52a7ece1dd599fff4cb6cd1f352ddd24`. No checkpoints were loaded or downloaded for these tests.
 
 | Gate | Result |
 |---|---|
-| Python unit/regression suite | 122 passed, including legacy MOSS, transactional schema-3 graphs and prior-version settings |
-| Frontend/locale suite | 42 passed; workflow restoration, method changes, migration, queue/export and stale backend handling |
-| Real ComfyUI CPU contracts | 12 passed; native SDXL/Anima tokenizers and token-weight encoders, ModelPatcher clone/hooks, conditioning batching, V3 node registration, real small attention modules and unsupported-model bypass |
+| Python unit/regression suite | 127 passed, including legacy MOSS, overflow regressions, transactional schema-3 graphs and prior-version settings |
+| Frontend/locale suite | 43 passed; workflow restoration, method changes, migration, queue/export and stale backend handling |
+| Real ComfyUI CPU contracts | 14 passed; native SDXL/Anima tokenizers and token-weight encoders, ModelPatcher clone/hooks, conditioning batching, V3 node registration, real small attention modules and unsupported-model bypass |
 | Pinned PPM SDXL comparison | 6 prompts, including empty, unit/zero/negative/large weights, nested syntax and multiple CLIP chunks; K/V and pooled agree at float64 tolerance 1e-12 |
 | Pinned PPM Anima comparison | 4 prompts × 2 preprocessing routes; context and Value-sign metadata agree exactly after matching dtype |
 | MOSS pinned PPM comparison | 48 cases; maximum absolute error 4.45e-16 |
@@ -15,6 +17,14 @@ CPU verification on Windows, installed ComfyUI **0.43.0**, commit `426f5eea52a7e
 The native contracts use actual installed ComfyUI modules with small deterministic encoder/adapter stand-ins instead of checkpoint weights. SDXL BasicTransformerBlock and Anima/Cosmos Attention execute on CPU. Tests cover original Negative numerics, pooled/mask/IDs preservation, different CLIP chunk lengths, reversed CFG row order, positive-only and negative-only calls, batch size 2, Anima length above 512, deferred and inference preprocessing, FP64/FP32/FP16/BF16 Value dtype, coefficient overflow, duplicate patch rejection and input/options ownership. Illustrious is covered through its native SDXL architecture contract, not checkpoint generation.
 
 Model-auto settings use schema 3 and a private V3-API runtime. Old schema 1/2 and runtime V1 remain supported. Tests assert that loading an old workflow does not upgrade its model scope; an explicit weighting-setting change does. The MOSS attention arithmetic is retained.
+
+### External audit follow-up
+
+- Reproduced NUM-01 before editing: finite FP16 weight -60000 and Value 2 produced infinity; finite mask 40000 plus bias 40000 also overflowed. The new regressions cover FP16/BF16/FP32/FP64, Tensor/container inputs, dtype conversion, legal -inf mask blocking and unchanged input/unselected rows. Finite output arithmetic is unchanged; invalid results now raise `INVALID_WEIGHT`, with no clipping or fixed weight cap.
+- MOSS decides whether a Value multiplier can amplify from CPU coefficient metadata. Nonamplifying multipliers and the ordinary no-existing-mask path add no finite-check readback. Amplification needs a result check in each affected block; an existing mask combined with bias is also checked. No GPU speed/VRAM benefit is claimed.
+- Reproduced Anima's analogous product overflow using native preprocessing and a tiny constant adapter, in both deferred and inference preprocessing and both methods. A model-local `preprocess_text_embeds` guard is installed only for amplifying weights, checking after native multiplication rather than in each attention block. Native Negative, finite results, original model ownership and patch removal are covered.
+- Reproduced UI-01 before editing: schema-3 rejection remained a generic settings error. Rejections matching the submitted supported schema (2 or 3) now give localized backend-restart instructions, stop queue/export and retain workflow settings. Other invalid settings/errors do not become restart messages.
+- The audit's optional all-Positive Q/K/V copy optimization was not needed to fix either defect and is unchanged. Real browser/GPU gates remain open.
 
 ### Reproduce
 
@@ -30,7 +40,7 @@ For independent PPM comparisons, optionally pass `--reference-dir /path/to/exter
 
 ### Unperformed gates
 
-New-adapter checkpoint loading, GPU image/quality comparison, real GPU backend speed/VRAM, installed browser Settings rendering and live workflow tab/PNG restoration. Unit/frontend doubles and real CPU module contracts do not establish these results. No GPU generation or service restart is performed by the tests. Version 0.10.0 packages these changes; previous releases/tags are retained and Registry publishing is separate.
+New-adapter checkpoint loading, GPU image/quality comparison, real GPU backend speed/VRAM, installed browser Settings rendering and live workflow tab/PNG restoration. Unit/frontend doubles and real CPU module contracts do not establish these results. No GPU generation or service restart is performed by the tests. Version 0.10.1 packages these changes; previous releases/tags are retained and Registry publishing is separate.
 
 ## Historical validation report — 0.9
 

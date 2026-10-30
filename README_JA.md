@@ -1,10 +1,12 @@
-# ComfyUI-MOSS-Emphasis v0.10.0
+# ComfyUI-MOSS-Emphasis v0.10.1
 
 [English](README.md) · [検証結果](docs/VALIDATION.md) · [参照元](NOTICE.md)
 
 **Settings → MOSS Emphasis**で、通常の重み付けと**NegPiP**を切り替える拡張です。普通の**CLIP Text Encode**を使い、専用ノードをキャンバスへ置く必要はありません。
 
-**v0.10.0はNegPiPを搭載**し、**標準MOSS-Image、SDXL／Illustrious、標準Animaの3系統**に対応します。自動判定モードでは、**それ以外のモデルは本拡張を自動で無効化（バイパス）**し、標準処理で生成を続けます。Qwen-Image・FLUX・SD1.5・SD3・Krea2・SDXL Refinerなども対象です。CPU検証段階の試験版で、新アダプターのGPU画質・速度・VRAMは未検証です。[リリースノート](docs/RELEASE_NOTES_0.10.0.md)。
+**v0.10.1はNegPiPを搭載**し、**標準MOSS-Image、SDXL／Illustrious、標準Animaの3系統**に対応します。自動判定モードでは、**それ以外のモデルは本拡張を自動で無効化（バイパス）**し、標準処理で生成を続けます。Qwen-Image・FLUX・SD1.5・SD3・Krea2・SDXL Refinerなども対象です。CPU検証段階の試験版で、新アダプターのGPU画質・速度・VRAMは未検証です。[リリースノート](docs/RELEASE_NOTES_0.10.1.md)。
+
+**0.10.1の修正：** 極端な有限重みによってMOSSのValue乗算・mask合成・Animaのadapter後の乗算がoverflowした場合、`INVALID_WEIGHT`で停止します。固定上限や丸め込みは追加せず、有限結果の計算を維持します。起動中の旧バックエンドがschema 2／3を拒否した場合は、日本語／英語の再起動案内を表示し、生成投入と設定変更を行いません。0.9.0・0.9.1・0.10.0の保存設定も、方式・強さ・対象モデル範囲を保って読み込めます。
 
 ## インストール・更新
 
@@ -59,7 +61,7 @@ Illustriousは標準SDXLの構造として扱います。検証ではIllustrious
 1girl, (red hair:1.2), (realistic:-5)
 ```
 
-負の数字を書いただけではNegPiPに切り替わりません。選択中の方式で負の重みとして扱います。プロンプト重みに固定の上下限はありませんが、非有限数・係数のoverflow・使用dtypeで表現できない値はエラーになります。絶対値を増やしても画像上の抑制が比例するとは限りません。
+負の数字を書いただけではNegPiPに切り替わりません。選択中の方式で負の重みとして扱います。プロンプト重みに固定の上下限はありませんが、非有限数・係数のoverflow・使用dtypeで表現できない値はエラーになります。重み付けでoverflowが起こり得る場合は、MOSSのValue乗算・Attention maskの合成・Animaのadapter後の乗算結果も検査し、`INVALID_WEIGHT`で停止します。重みの丸め込みや方式の自動変更は行いません。絶対値を増やしても画像上の抑制が比例するとは限りません。
 
 | 通常強度／NegPiP効果が1のとき | 重み0 | 重み1 |
 |---|---|---|

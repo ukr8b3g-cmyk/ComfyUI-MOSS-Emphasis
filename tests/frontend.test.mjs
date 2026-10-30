@@ -68,19 +68,19 @@ test("in-flight workflow metadata is frozen at submission",async()=>{
 
 test("saved 0.9.0 workflow settings migrate without dropping enabled state", () => {
  const old = normalize({ version:"0.9.0", enabled:true, strength:1.3 });
- assert.equal(old.version,"0.10.0");assert.equal(old.enabled,true);assert.equal(old.strength,1.3);
+ assert.equal(old.version,"0.10.1");assert.equal(old.enabled,true);assert.equal(old.strength,1.3);
 });
 
 test("version upgrade preserves old NegPiP mode and auto scope",()=>{
- for(const [schema,engine] of [[2,"ppm_negpip_moss_v1"],[3,"negpip_auto_v1"]]){
-   const old={version:"0.9.1",schema_version:schema,engine,enabled:true,strength:.7,negpip_strength:.4};
-   const value=normalize(old);assert.equal(value.version,"0.10.0");
+ for(const version of ["0.9.1","0.10.0"]) for(const [schema,engine] of [[2,"kj_dit_v1"],[2,"ppm_negpip_moss_v1"],[3,"native_auto_v1"],[3,"negpip_auto_v1"]]){
+   const old={version,schema_version:schema,engine,enabled:true,strength:.7,negpip_strength:.4};
+   const value=normalize(old);assert.equal(value.version,"0.10.1");
    for(const key of ["schema_version","engine","enabled","strength","negpip_strength"])assert.equal(value[key],old[key]);
  }
 });
 test("older running backend version rejection gives restart instructions",async()=>{
  const {api,app,calls}=fixture({schema_version:3,engine:"negpip_auto_v1",enabled:true});
- api.fetchApi=async()=>({ok:false,json:async()=>({error:{code:"INVALID_SETTINGS",message:"Unsupported version: '0.10.0'."}})});
+ api.fetchApi=async()=>({ok:false,json:async()=>({error:{code:"INVALID_SETTINGS",message:"Unsupported version: '0.10.1'."}})});
  await assert.rejects(api.queuePrompt(0,await app.graphToPrompt()),/BACKEND_RESTART_REQUIRED/);assert.equal(calls.length,0);
 });
 
@@ -206,10 +206,21 @@ test("native Settings sort keeps each enable control before its strength",()=>{
  assert.equal(extension.settings.find(s=>s.id===IDS.negpip).defaultValue,false);
 });
 test("old Python schema rejection explains restart in the UI locale and never queues",async()=>{
- for(const locale of ['en','ja']) {
-  const {api,c,app,store,calls}=fixture({enabled:true});store.get=()=>locale;
-  api.fetchApi=async()=>({ok:false,json:async()=>({error:{code:'INVALID_SETTINGS',message:'Unsupported schema_version: 2.'}})});
+ for(const locale of ['en','ja']) for(const [schema,engine] of [[2,'ppm_negpip_moss_v1'],[3,'native_auto_v1'],[3,'negpip_auto_v1']]) {
+  const {api,c,app,store,calls}=fixture({enabled:true,schema_version:schema,engine});store.get=()=>locale;
+  const original=structuredClone(app.rootGraph.extra);
+  api.fetchApi=async()=>({ok:false,json:async()=>({error:{code:'INVALID_SETTINGS',message:`Unsupported schema_version: ${schema}.`}})});
   await assert.rejects(api.queuePrompt(0,await app.graphToPrompt()),locale==='ja'?/ComfyUI本体を再起動/:/Restart ComfyUI itself/);
   await assert.rejects(c.exportApi(),/BACKEND_RESTART_REQUIRED/);assert.equal(calls.length,0);
+  assert.deepEqual(app.rootGraph.extra,original);
+ }
+});
+
+test("unrelated invalid settings are not classified as backend restart",async()=>{
+ for(const [code,message] of [['INVALID_SETTINGS','Unsupported schema_version: 4.'],['INVALID_SETTINGS','Unsupported schema_version: 2.'],['INVALID_SETTINGS','Invalid strength.'],['OTHER','Unsupported schema_version: 3.']]) {
+  const {api,app,calls}=fixture({enabled:true,schema_version:3,engine:'negpip_auto_v1'});
+  api.fetchApi=async()=>({ok:false,json:async()=>({error:{code,message}})});
+  await assert.rejects(api.queuePrompt(0,await app.graphToPrompt()),error=>error.message===`[${code}] ${message}`);
+  assert.equal(calls.length,0);
  }
 });

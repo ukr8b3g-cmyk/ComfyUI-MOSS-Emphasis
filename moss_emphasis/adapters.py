@@ -131,6 +131,17 @@ def patch_anima(model):
     model.set_model_attn2_patch(anima_attention)
 
 
+def guard_anima_product(model):
+    # Both native preprocessing routes call this method after the LLM adapter.
+    previous = model.get_model_object("diffusion_model.preprocess_text_embeds")
+    def preprocess(text_embeds, text_ids, t5xxl_weights=None):
+        result = previous(text_embeds, text_ids, t5xxl_weights=t5xxl_weights)
+        if t5xxl_weights is not None and not torch.isfinite(result).all():
+            raise EmphasisError("INVALID_WEIGHT", "Weighted Anima context exceeds the working dtype; reduce the prompt weight or strength.")
+        return result
+    model.add_object_patch("diffusion_model.preprocess_text_embeds", preprocess)
+
+
 def encode_native(model, clip, text, negative, config):
     family = model_family(model, clip)
     if family is None:
@@ -153,10 +164,14 @@ def encode_native(model, clip, text, negative, config):
     limit = torch.finfo(model.model.get_dtype_inference()).max
     if not torch.isfinite(context).all() or (context.abs() > limit).any():
         raise EmphasisError("INVALID_WEIGHT", "Weighted conditioning exceeds the working dtype; reduce the weight or strength.")
+    # Anima's actual multiplication happens later, after the LLM adapter.
+    guarded = family == "anima" and any(abs(w) > 1 for section in transformed["t5xxl"] for _, w, *_ in section)
+    patched = model.clone() if negpip or guarded else model
+    if guarded:
+        guard_anima_product(patched)
     if not negpip:
-        return model, positive, negative
+        return patched, positive, negative
     plain_conditioning(negative)
-    patched = model.clone()
     patched.model_options[PATCH] = family
     if family == "sdxl":
         positive = sdxl_conditioning(positive, tokens, clip, strength)

@@ -240,6 +240,55 @@ class NativeContracts(unittest.TestCase):
                 expected = m.model.diffusion_model.preprocess_text_embeds(pos[0][0], pos[0][1]["t5xxl_ids"][None], pos[0][1]["t5xxl_weights"][None,:,None])
                 torch.testing.assert_close(adapted, expected.repeat(2,1,1))
 
+    def test_anima_adapter_product_overflow_in_both_preprocessing_routes(self):
+        class ConstantAdapter(torch.nn.Module):
+            def __init__(self, value):
+                super().__init__(); self.value = value
+            def forward(self, context, ids):
+                return context.new_full((context.shape[0], ids.shape[1], context.shape[2]), self.value)
+        for engine in (AUTO_ENGINE, AUTO_NEGPIP):
+            for inference in (False, True):
+                for value in (.5, 2.):
+                    with self.subTest(engine=engine, inference=inference, value=value), torch.inference_mode(inference):
+                        c, m = Clip('anima', torch.float16), model('anima', torch.float16)
+                        diffusion = m.model.diffusion_model
+                        diffusion.llm_adapter = ConstantAdapter(value)
+                        original = diffusion.preprocess_text_embeds
+                        guarded, pos, neg = run(m, c, '(red:-60000)', {**ON, 'engine': engine})
+                        native_negative = extra(m, neg)
+                        diffusion._forward = types.MethodType(lambda self, x, t, context, *a, **kw: context, diffusion)
+                        guarded.patch_model(load_weights=False)
+                        try:
+                            converted_negative = extra(guarded, neg)
+                            for key in native_negative:
+                                torch.testing.assert_close(converted_negative[key].cond, native_negative[key].cond, rtol=0, atol=0)
+                            def execute():
+                                data = extra(guarded, pos)
+                                values = {k:v.process_cond(1).cond for k,v in data.items()}
+                                context = values.pop('c_crossattn')
+                                options = merge_nested_dicts(guarded.model_options['transformer_options'], {'wrappers': guarded.wrappers})
+                                return diffusion(torch.zeros(1,1), None, context, transformer_options=options, **values)
+                            if value == 2:
+                                with self.assertRaisesRegex(EmphasisError, 'INVALID_WEIGHT'):
+                                    execute()
+                            else:
+                                actual = execute()
+                                expected = original(pos[0][0], pos[0][1]['t5xxl_ids'][None], pos[0][1]['t5xxl_weights'][None,:,None].to(pos[0][0]))
+                                torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+                                self.assertTrue(torch.isfinite(actual).all())
+                        finally:
+                            guarded.unpatch_model(unpatch_weights=False)
+                        self.assertEqual(diffusion.preprocess_text_embeds, original)
+                        self.assertEqual(m.object_patches, {})
+
+    def test_anima_nonamplifying_weights_need_no_product_guard(self):
+        for engine in (AUTO_ENGINE, AUTO_NEGPIP):
+            c, m = Clip('anima'), model('anima')
+            result, _, _ = run(m, c, '(red:-1) (blue:0.5) (cat:0)', {**ON, 'engine': engine})
+            self.assertNotIn('diffusion_model.preprocess_text_embeds', result.object_patches)
+            if engine == AUTO_ENGINE:
+                self.assertIs(result, m)
+
     def test_sdxl_standard_is_native_and_pooling_unchanged(self):
         c, m = Clip(), model()
         for text in ("", "red", "(red:-5) red (blue:0)", "((cat:2):0.5)", r"\(red\) [blue]", "cat " * 90):

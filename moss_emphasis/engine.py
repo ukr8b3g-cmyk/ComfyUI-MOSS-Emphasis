@@ -77,26 +77,35 @@ def combine_mask(mask, bias):
         return bias
     if mask.device != bias.device or mask.shape[-1] != bias.shape[-1] or mask.ndim not in (2, 3, 4):
         raise EmphasisError("UNSUPPORTED_ATTENTION_BACKEND", "Unsupported existing attention-mask shape/device.")
+    blocked = ~mask if mask.dtype == torch.bool else torch.isneginf(mask)
     if mask.dtype == torch.bool:
         mask = torch.zeros_like(mask, dtype=bias.dtype).masked_fill(~mask, float("-inf"))
     else:
         mask = mask.to(bias.dtype)
     if mask.ndim == 2:
         mask = mask[:, None, None, :]
+        blocked = blocked[:, None, None, :]
     elif mask.ndim == 3:
         mask = mask[:, None, :, :]
+        blocked = blocked[:, None, :, :]
     # Never allocate a new sequence-by-sequence mask just for emphasis.
     if mask.shape[-2] != 1:
         raise EmphasisError("UNSUPPORTED_ATTENTION_BACKEND", "Dense/query-dependent masks are unsupported in 0.9.")
-    return mask + bias
+    combined = mask + bias
+    # Keep intentional -inf blocking, but reject overflow in the cast or sum.
+    if not (torch.isfinite(combined) | (blocked & torch.isneginf(combined))).all():
+        raise EmphasisError("INVALID_WEIGHT", "Combined attention mask exceeds the working dtype; reduce the weight or mask magnitude.")
+    return combined
 
 
-def apply_values(v, rows, start, factors):
+def apply_values(v, rows, start, factors, *, check_finite=True):
     if v.ndim != 3 or start + len(factors) != v.shape[1]:
         raise EmphasisError("UNSUPPORTED_ATTENTION_BACKEND", "Expected [batch, image+text, channels] value vectors.")
     out = v.clone()
     for row in rows:
         out[row, start:] *= factors.to(device=v.device, dtype=v.dtype)[:, None]
+    if check_finite and not torch.isfinite(out[rows, start:]).all():
+        raise EmphasisError("INVALID_WEIGHT", "Weighted Value exceeds the working dtype; reduce the prompt weight or strength.")
     return out
 
 
@@ -108,6 +117,7 @@ class ForwardState:
         if any(not math.isfinite(value) for pair in self.weights for value in pair):
             raise EmphasisError("INVALID_WEIGHT", "Computed weighting coefficients overflowed; reduce the prompt weight or strength.")
         self.max_coefficient = max(abs(value) for pair in self.weights for value in pair)
+        self.amplifies_values = any(abs(pair[0]) > 1 for pair in self.weights)
         self.device_reference = None
         self.negpip = engine == NEGPIP
 
@@ -179,6 +189,7 @@ def patch(model, conditioning, weights, strength, engine=ENGINE):
     backend, backend_kind = select_attention_backend(attn)
     if len(getattr(diffusion, "layers", [])) != 42 or not hasattr(diffusion, "text_embedder"):
         raise EmphasisError("UNSUPPORTED_MODEL_ADAPTER", "Expected the native 42-block MOSS-Image architecture.")
+    forward_state = ForwardState(conditioning[0][0][0], weights, strength, engine)
 
     class LocalAttention(attn.ComfyAttention):
         def __init__(self, original):
@@ -206,10 +217,12 @@ def patch(model, conditioning, weights, strength, engine=ENGINE):
                 if kt.ndim != 3 or (bias is not None and kt.shape[1] != bias.shape[-1]):
                     raise EmphasisError("UNSUPPORTED_ATTENTION_BACKEND", "Unexpected key/reference token layout.")
                 if factors is not None:
+                    # Only amplification can overflow finite Value inputs. Decide
+                    # from CPU coefficients, without a scalar read in every block.
                     if isinstance(v, attn.AttentionTensorContainer):
-                        v = attn.AttentionTensorContainer(apply_values(v.take(), rows, start, factors))
+                        v = attn.AttentionTensorContainer(apply_values(v.take(), rows, start, factors, check_finite=forward_state.amplifies_values))
                     else:
-                        v = apply_values(v, rows, start, factors)
+                        v = apply_values(v, rows, start, factors, check_finite=forward_state.amplifies_values)
                 mask = combine_mask(mask, bias)
             return backend(q, k, v, heads, *args, mask=mask, transformer_options=opts, **kwargs)
 
@@ -223,6 +236,6 @@ def patch(model, conditioning, weights, strength, engine=ENGINE):
     cloned = model.clone()
     for path, replacement in patches:
         cloned.add_object_patch(path, replacement)
-    cloned.add_wrapper_with_key(WrappersMP.DIFFUSION_MODEL, KEY, ForwardState(conditioning[0][0][0], weights, strength, engine))
+    cloned.add_wrapper_with_key(WrappersMP.DIFFUSION_MODEL, KEY, forward_state)
     logging.info("[MOSS Emphasis] selected attention backend=%s (original global kernel retained)", backend_kind)
     return cloned

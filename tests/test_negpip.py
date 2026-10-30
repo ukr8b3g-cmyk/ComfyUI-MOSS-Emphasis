@@ -29,7 +29,7 @@ class NegPiPTests(unittest.TestCase):
         self.mock.stop()
 
     def test_legacy_migration(self):
-        for version in ('0.9.0', '0.9.1'):
+        for version in ('0.9.0', '0.9.1', '0.10.0'):
             old = settings({'version': version, 'enabled': True, 'strength': .7})
             self.assertEqual((old['engine'], old['strength'], old['schema_version']), ('kj_dit_v1', .7, 2))
             self.assertEqual(settings(old), old)

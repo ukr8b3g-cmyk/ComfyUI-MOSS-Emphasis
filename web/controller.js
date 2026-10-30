@@ -1,5 +1,5 @@
 /* Settings are a workflow editor, never process-global execution state. */
-export const VERSION = "0.10.0";
+export const VERSION = "0.10.1";
 export const RUNTIME = "_MossEmphasisRuntimeV1";
 export const RUNTIME_V2 = "_MossEmphasisRuntimeV2";
 export const isNegPiP = config => ["ppm_negpip_moss_v1", "negpip_auto_v1"].includes(config.engine);
@@ -21,7 +21,7 @@ export function normalize(raw = {schema_version: 3, engine: "native_auto_v1"}) {
     throw new Error("Unsupported MOSS Emphasis schema or engine.");
   for (const field of ["parser_version", "engine_version"])
     if (raw[field] !== undefined && raw[field] !== 1) throw new Error("Unsupported MOSS Emphasis " + field);
-  if (raw.version !== undefined && !["0.9.0", "0.9.1", VERSION].includes(raw.version)) throw new Error("Unsupported MOSS Emphasis version.");
+  if (raw.version !== undefined && !["0.9.0", "0.9.1", "0.10.0", VERSION].includes(raw.version)) throw new Error("Unsupported MOSS Emphasis version.");
   const enabled = raw.enabled === undefined ? false : raw.enabled, strength = raw.strength === undefined ? 1 : raw.strength, neg = raw.negpip_strength === undefined ? 1 : raw.negpip_strength;
   if (typeof enabled !== "boolean" || typeof strength !== "number" || !Number.isFinite(strength) || strength < 0 || strength > 4 ||
       typeof neg !== "number" || !Number.isFinite(neg) || neg < 0 || neg > 1)
@@ -128,7 +128,7 @@ export class Controller {
     });
     const result = await response.json();
     if (!response.ok && result.error?.code === "INVALID_SETTINGS" &&
-        (result.error?.message === "Unsupported schema_version: 2." ||
+        (result.error?.message === `Unsupported schema_version: ${snapshot.schema_version}.` ||
          result.error?.message === `Unsupported version: '${VERSION}'.` ||
          (snapshot.schema_version === 3 && result.error?.message === "Unsupported schema or engine."))) {
       const ja = String(this.store?.get?.("Comfy.Locale") ?? "").startsWith("ja");

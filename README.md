@@ -1,10 +1,12 @@
-# ComfyUI-MOSS-Emphasis v0.10.0
+# ComfyUI-MOSS-Emphasis v0.10.1
 
 [日本語](README_JA.md) · [Validation](docs/VALIDATION.md) · [Attribution](NOTICE.md)
 
 Prompt weighting and **NegPiP** from **Settings → MOSS Emphasis**, using ordinary **CLIP Text Encode**. No prompt-weight node needs to be placed on the canvas.
 
-**v0.10.0 includes NegPiP** for three model families: **native MOSS-Image, SDXL / Illustrious, and native Anima**. In auto model mode, **every other architecture automatically bypasses this extension**, including Qwen-Image, FLUX, SD1.5, SD3, Krea2 and SDXL Refiner; ordinary generation continues. These are CPU-tested experimental features. GPU quality, speed and VRAM for the new adapters have not been tested. [Release notes](docs/RELEASE_NOTES_0.10.0.md).
+**v0.10.1 includes NegPiP** for three model families: **native MOSS-Image, SDXL / Illustrious, and native Anima**. In auto model mode, **every other architecture automatically bypasses this extension**, including Qwen-Image, FLUX, SD1.5, SD3, Krea2 and SDXL Refiner; ordinary generation continues. These are CPU-tested experimental features. GPU quality, speed and VRAM for the new adapters have not been tested. [Release notes](docs/RELEASE_NOTES_0.10.1.md).
+
+**Fixed in 0.10.1:** extreme finite weights now stop with `INVALID_WEIGHT` if MOSS Value multiplication, mask composition or Anima post-adapter multiplication overflows. No fixed weight cap or clamping was added; finite arithmetic is unchanged. An older running backend rejecting schema 2/3 now gives a localized restart instruction without queueing or changing saved settings. Settings from 0.9.0, 0.9.1 and 0.10.0 remain loadable with their method, strengths and model scope preserved.
 
 ## Install / update
 
@@ -59,7 +61,7 @@ Illustrious uses the native SDXL architecture route, not a filename allowlist. N
 1girl, (red hair:1.2), (realistic:-5)
 ```
 
-A negative number is interpreted within the selected method; it does not automatically switch to NegPiP. Prompt weights have no fixed min/max. Non-finite values, overflowing coefficients and unrepresentable conditioning are rejected. Larger magnitudes do not guarantee stronger visual suppression.
+A negative number is interpreted within the selected method; it does not automatically switch to NegPiP. Prompt weights have no fixed min/max. Non-finite values, overflowing coefficients and unrepresentable conditioning are rejected. The actual MOSS Value product, combined attention mask and Anima post-adapter product are also checked where weighting can overflow: an invalid result raises `INVALID_WEIGHT`, without clamping the weight or changing methods. Larger magnitudes do not guarantee stronger visual suppression.
 
 | Model, strength/effect = 1 | Weight 0 | Weight 1 |
 |---|---|---|

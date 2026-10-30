@@ -35,7 +35,7 @@ def settings(value: dict | None) -> dict:
     for field, expected in (("parser_version", 1), ("engine_version", 1)):
         if field in value and (type(value[field]) is not type(expected) or value[field] != expected):
             raise EmphasisError("INVALID_SETTINGS", f"Unsupported {field}: {value[field]!r}.")
-    if "version" in value and (type(value["version"]) is not str or value["version"] not in ("0.9.0", "0.9.1", VERSION)):
+    if "version" in value and (type(value["version"]) is not str or value["version"] not in ("0.9.0", "0.9.1", "0.10.0", VERSION)):
         raise EmphasisError("INVALID_SETTINGS", f"Unsupported version: {value['version']!r}.")
     enabled, strength = value.get("enabled", False), value.get("strength", 1.0)
     if type(enabled) is not bool or type(strength) not in (int, float) or not math.isfinite(strength) or not 0 <= strength <= 4:
