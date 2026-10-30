@@ -8,3 +8,7 @@ dependencies = []
 
 [project.urls]
 Repository = "https://github.com/ukr8b3g-cmyk/ComfyUI-MOSS-Emphasis"
+
+[tool.comfy]
+PublisherId = "ukr8b3g-cmyk"
+DisplayName = "MOSS Emphasis (Experimental Beta)"
