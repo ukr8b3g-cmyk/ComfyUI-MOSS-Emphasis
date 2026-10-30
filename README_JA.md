@@ -1,148 +1,95 @@
-# MOSS Emphasis 0.9.1
+# ComfyUI-MOSS-Emphasis
 
-**普通のPositive欄で `(big eyes:0.5)` を使用し、SettingsだけでON/OFF・Strengthを操作するComfyUI拡張です。** 専用のPrompt Weightノードを配置する必要はありません。
+[English](README.md) · [検証結果](docs/VALIDATION.md) · [参照元](NOTICE.md)
 
-> **重要：MOSS-Image以外のモデルを使う場合は、本拡張をOFFにしてください。** Illustrious（SDXL）・Anima・Krea2・その他のモデルを使用する際は、**Settings → MOSS Emphasis → Enable prompt weighting** を **OFF** にすることを推奨します。通常のモデル判定ではMOSS用の重み処理を回避しますが、ONのままだと一部の特殊なサンプラー・Guidance・Conditioning構成が実行前の互換性検査で拒否される場合があります。**OFFにしても、IllustriousやAnimaなどの標準プロンプト重み付けは無効になりません。**
+**Settings → MOSS Emphasis**で、通常の重み付けと**NegPiP**を切り替える拡張です。普通の**CLIP Text Encode**を使い、専用ノードをキャンバスへ置く必要はありません。
 
-> **0.9.1も試験版です。** CPUの単体・契約テストは実施しましたが、MOSS実モデルのGPU生成、実際のComfyUI画面、Base/SFTや量子化モデルの生成品質は未検証です。完全なV1受入完了とは区別してください。
+開発ブランチでは、MOSS-Imageに加えて**SDXL／Illustrious・標準Anima**へ対応しました。追加機能はCPU検証段階の試験版です。既存の**0.9.1 Release／タグは未更新**で、新アダプターのGPU画質・速度・VRAMは未検証です。
 
-## インストール
+## インストール・更新
 
-ComfyUIの `custom_nodes` フォルダで次を実行します。
+ComfyUIの `custom_nodes` 内で実行します。
 
 ```sh
 git clone https://github.com/ukr8b3g-cmyk/ComfyUI-MOSS-Emphasis.git
 ```
 
-ZIPの場合は `custom_nodes/ComfyUI-MOSS-Emphasis/__init__.py` となるよう展開します。二重フォルダにしないでください。ComfyUIを再起動し、ブラウザーを再読み込みします。**追加のpip依存・モデル・LLM・KJNodesは不要**です。
+既存導入先は更新後、**ComfyUI本体を再起動してからブラウザーを再読み込み**してください。画面更新だけではPython側は更新されません。追加pip依存・PPM／KJNodesの導入・モデルのダウンロードは不要です。対象モデルの標準対応とV3ノードAPIを備えるComfyUIが必要です。検証版は[検証結果](docs/VALIDATION.md)に記載しています。
 
-ComfyUI本体のネイティブMOSS-Image対応と、現行のAttention/Settingsインターフェースを前提とします。OpenMOSSの独立HFロード用プラグインには0.9では対応しません。
+## 使い方と切り替え
 
-## 使い方
+通常のMODEL・Positive・Negativeの配線を維持し、設定 → MOSS Emphasisを開きます。
 
-### 画面の見方
+| 設定 | 意味 |
+|---|---|
+| プロンプトの重み付けを有効化 | 全体のON/OFF。ワークフロー単位で保存。新規はOFF |
+| 重み付け強度 | 通常方式専用。0～4、開始値は1 |
+| NegPiP方式を使用 | OFFで通常方式、ONでモデル別NegPiP。重ね掛けはしない |
+| NegPiP効果 | NegPiP専用。0～1、開始値は1 |
+| 現在の方式 | 方式・強さと「モデル自動判定」または「旧MOSS方式」を表示 |
 
-![MOSS Emphasis設定画面（英語UIの例）](docs/images/moss-emphasis-settings.webp)
+**MODELとCLIPの実際の型から自動判定**します。モデル名での判定や手動モデル選択はありません。全体OFFの間はNegPiPだけONにしても無効です。使っていない方式の強さは保存されますが、計算には使いません。
 
-*図：英語UIでのSettings画面。ComfyUIのロケールを日本語にすると、設定名・「ⓘ」のマウスオーバーヘルプ・セクション名・プルダウン項目が日本語になります。*
+使用中の強さが**0**、または全体OFFなら本拡張を完全にバイパスします。ただし、**SDXL／Animaが標準で持つプロンプト重みは原文に対して働きます**。「本拡張OFF＝モデル標準の重みまで無効」ではありません。
 
-| 画像の英語表示 | 日本語UIでの表示 | 用途 |
+![旧版MOSS Emphasis設定画面](docs/images/moss-emphasis-settings.webp)
+
+*画像はNegPiP追加前です。現在は「有効化 → 強度 → NegPiP → NegPiP効果 → 現在の方式」の順です。ComfyUIが日本語ならラベル・マウスオーバーヘルプも日本語になります。保存する設定IDは同じです。*
+
+## モデル別の処理
+
+| モデル | 通常方式 | NegPiP効果1 | 確認範囲 |
+|---|---|---|---|
+| 標準MOSS-Image Base／SFT | 既存KJ式のValue倍率・Attention bias | PPM参照のlog絶対値bias・Value符号 | 従来の計算を維持、CPU回帰確認 |
+| 標準SDXL Base系／Illustrious系 | 標準CLIP-L／Gの重み | 絶対値重み＋Key／Value分離、負の語のValue反転 | 実tokenizer・encoder処理・batch・小さな実AttentionのCPU確認 |
+| 標準Anima | Qwenアダプター後のT5トークン重み | T5重みの絶対値＋負の語のValue反転 | 前処理／forward・padding・batch・小さな実AttentionのCPU確認 |
+| Krea2・SDXL Refiner・その他 | 自動判定モードでは未対応 | 未対応 | 本拡張をOFFにする |
+
+Illustriousは標準SDXLの構造として扱います。検証ではIllustrious／Animaのチェックポイント自体はロードしていません。Animaは既存のT5 **tokenizer由来の情報**を使い、T5エンコーダーモデルを追加ロードしません。MODELとCLIPは同じモデル向けの標準ペアを使ってください。
+
+対象は**Positive内の重み**です。Negativeは、元々ある標準の重みも含めて計算上の意味を保ちます。SDXL NegPiPではKey／Value分離に合わせてNegativeを内部で同一内容の2本へ変換しますが、Negative文をNegPiPで再解釈しません。
+
+## 重み・0・1の意味
+
+```text
+1girl, (red hair:1.2), (realistic:-5)
+```
+
+負の数字を書いただけではNegPiPに切り替わりません。選択中の方式で負の重みとして扱います。プロンプト重みに固定の上下限はありませんが、非有限数・係数のoverflow・使用dtypeで表現できない値はエラーになります。絶対値を増やしても画像上の抑制が比例するとは限りません。
+
+| 通常強度／NegPiP効果が1のとき | 重み0 | 重み1 |
 |---|---|---|
-| Advanced | 詳細設定 | 詳細オプションのグループ |
-| Diagnostic logging | 診断ログ | 問題の調査時に対象IDや警告をログへ出す。普段はOFF |
-| General | 一般 | 普段使う設定のグループ |
-| Strength | 重み付け強度 | 全体の効き具合。0.00〜4.00、標準は1.00 |
-| Enable prompt weighting | プロンプトの重み付けを有効化 | **ここをONにすると機能が有効**。初期値OFF |
-| Tools | ツール | 実行用データの書き出し |
-| API export | APIエクスポート | 重み処理を含む実行用API JSONを保存 |
-| Select action | 操作を選択 | ツール操作の未選択状態 |
-| Export execution API JSON | 実行用API JSONを書き出す | API exportのプルダウン内の実行項目 |
+| MOSS通常 | Value倍率0。Keyは残る | 通常の重み |
+| MOSS NegPiP | bias用の絶対値を1e-4へfloor。Value符号は正 | 相対重み1。他トークンとの正規化の影響あり |
+| SDXL通常／NegPiP | 空プロンプト基準の埋め込み。NegPiPでも符号は正 | 標準の埋め込み |
+| Anima通常／NegPiP | 対応する変換後contextを0倍。NegPiPでも符号は正 | 標準の重み |
 
-### 通常の画像生成
+どれも「概念が必ず消える」という意味ではありません。`(realistic:1)` は通常重みであり、写実化を特別に強める指定ではありません。
 
-1. ComfyUIで **Settings → MOSS Emphasis**（日本語UIでは **MOSS 強調設定**）を開きます。
-2. **Enable prompt weighting（プロンプトの重み付けを有効化）をON**にします。
-3. **Strength（重み付け強度）を1.00**に設定します。値を下げると作用が弱まり、上げると強調・抑制の両方が強まります。
-4. 普段どおり **Positive側のCLIP Text Encode**、またはそこへ接続する **Text Multiline** 等に文章を入力してQueueします。専用Prompt Weightノードは不要です。
+**構文はモデルで異なります。** MOSSは既存の明示小数構文・普通の括弧の文字扱い・入れ子の積・128グループ／16階層制限・文字位置対応を維持します。Layout JSONでは `summary.caption` と `items[].caption` だけを処理します。SDXL／Animaは**標準tokenizer**の括弧・エスケープ・入れ子・トークン重みを使い、MOSS用JSON保護は適用しません。A1111／Compelの正規化モードでもありません。
 
-従来の配線を変更する必要はありません。
+SDXL／Animaの通常強度`s`は、重み`w`を `1+s*(w-1)` に変換します。NegPiP効果`t`では絶対値重みを `1+t*(abs(w)-1)`、負の語のValue倍率を `1-2*t` とします。効果**1**が固定PPM参照との比較基準で、中間効果は本拡張独自の機能です。**0.5**では負の語のValueが0になりますがトークンは残ります。MOSSでは従来のlog-bias補間です。
 
-```text
-Text Multiline / CSV / 文字列結合（必要な場合）
-        ↓
-普通の CLIP Text Encode
-        ↓
-KSampler の positive
+## 対応配線・旧設定
+
+通常の `CLIPTextEncode → KSampler / KSamplerAdvanced`、または `CLIPTextEncode → CFGGuider → SamplerCustomAdvanced` に対応します。Text Multiline／CSV／文字列連結から `CLIPTextEncode.text` へ入力できます。通常のLoRA・CLIP skipは標準エンコーダー経路を利用します。
+
+初期対応範囲には `CLIPTextEncodeSDXL`、Advanced CLIP、領域／時間指定／結合Conditioning、ControlNet／IPAdapter、Refiner、独自HFローダー、一体型カスタムサンプラーを含みません。同じ経路の別の重み・attn2置換は二重適用を拒否します。未対応のワークフローではOFFにしてください。
+
+MOSSの制限は従来どおりで、PyTorch/basic、標準の全体Comfy Kitchen INT8 (`--use-ck-attention`) 経路と公式SLGが対象です。Sage／Flash／SOL上書き・層ごとの設定済みINT8は対象外です。実GPUのKitchen／SLG動作は未検証です。SDXL／Animaは標準Attention hookを使い、選択済みカーネルを置き換えません。CPU合格は全GPUバックエンドの保証ではありません。
+
+**schema 1/2の保存済みワークフローは旧MOSS専用動作を維持**します。開いただけでは他モデルの重みを突然有効にしません。新対応を使うには重み設定を明示的に操作（例：全体OFF→ON）して保存してください。状態表示が「旧MOSS方式」から「モデル自動判定」に変わります。診断ログだけでは移行しません。方式やタブを切り替えても両方の強さを保持します。
+
+画面の配線は変更せず、実行グラフのコピーへ内部runtimeを挿入します。設定はジョブごとに固定されキャッシュへ反映されます。グローバルなtokenizer／Attention関数、CFG・サンプラー・スケジューラー・モデルファイル・ComfyUI本体は変更しません。
+
+## API・検証
+
+設定 → MOSS Emphasis → APIエクスポート → **実行用API JSONを書き出す**を使ってください。`/moss_emphasis/prepare` の例は[英語README](README.md#api-and-tests)にあります。prepareの外側形式はversion 1、設定はschema 3です。準備エラー時に重みなし生成を投入しません。通常のComfyUI API保存だけでは変換が含まれない場合があります。
+
+```sh
+python -m unittest discover -s tests -v
+node --test tests/frontend.test.mjs tests/locales.test.mjs
+python -B tests/native_contract.py --comfy-root /path/to/ComfyUI
 ```
 
-例えば、Positive欄に次のように入力できます。
-
-```text
-portrait, (big eyes:0.5), (long hair:1.2), soft lighting
-```
-
-`(big eyes:0.5)` は「大きな目」を弱める方向、`(long hair:1.2)` は長い髪を強調する方向に作用します。**数値は実寸や出現確率を直接指定するものではありません。**
-
-設定は**現在のワークフロー単位**です。新規ワークフローではOFFとなり、保存・読み戻し時にはそのワークフローの値を復元します。投入済みのキューには後から変更したStrengthを反映しません。MOSS Base／SFTの手動切替は不要です。
-
-### 詳細設定とツール
-
-- **Diagnostic logging（診断ログ）：** 問題調査時だけONにします。対象ノードID、設定、警告などを確認できますが、プロンプト全文は記録しません。
-- **API export（APIエクスポート）：** プルダウンの **Export execution API JSON（実行用API JSONを書き出す）** を選ぶと、重み処理を含めたAPI実行用JSONをダウンロードします。通常のComfyUI「API形式で保存」には内部の重み処理が含まれない場合があります。
-- **マウスオーバーヘルプ：** 各項目名の横にある `ⓘ` にカーソルを合わせると説明が表示されます。ComfyUIのロケールが日本語なら説明も日本語、英語なら英語になります。
-
-**OFFまたはStrength=0.00では、構文の除去も含めて完全バイパス**です。Negative欄はそのままで、この拡張による重み指定は追加されません。KJNodes版の専用Prompt Weightノードを同じ生成経路に残したままONにすると、二重適用防止エラーになります。
-
-### 日本語UIへの切り替え
-
-ComfyUIの **Settings → Comfy → Locale → Language** で **日本語** を選びます。拡張が更新済みなら、MOSS Emphasisのセクション名、設定ラベル、`ⓘ` ヘルプ、API exportの選択肢が自動的に日本語へ切り替わります。日本語翻訳はComfyUI標準のカスタムノード翻訳機構を利用し、モデル・CLIP・Promptの値や設定IDは変更しません。
-
-拡張のソースを更新した場合は、**ComfyUIを再起動してブラウザも再読み込み**してください。既存の `v0.9` リリースZIPには、このREADME画面例と日本語UI翻訳ファイルが含まれないため、GitHubの `main` を更新したものを使用してください。
-
-## 重みの意味
-
-`0.5`は目の大きさを半分にする指定ではありません。KJ方式の数式に従い、1以下では対象トークンのValue、1超ではAttentionスコアへ作用します。`0`や負数も概念を完全に消す保証はありません。
-
-作品名の括弧は保持します。`saber (fate)`は普通の文字列、`(saber (fate):1.2)`は句全体の強調です。`(word)`だけでは暗黙の1.1倍強調を行いません。入れ子の明示重みは積算します。同じ単語が複数回あっても、指定した出現だけが対象です。
-
-個別・実効重みは-2〜4、入れ子は16階層、重みグループは128個までです。文字として使うコロンや括弧が重み構文に見える場合はバックスラッシュでエスケープします。
-
-### 注意：時計・時刻などの `(12:30)` は重み構文と誤認されます
-
-本拡張がON（Strength > 0）のとき、`(文字列:数値)` は**重み構文**として解析されます。例えば以下の時計の時刻は、`12` が対象文字列、`30` が重みとして扱われます。
-
-```text
-A clock showing (12:30), (big eyes:0.5)
-```
-
-`30` は許容範囲（-2〜4）外のため、`INVALID_WEIGHT` エラーで**生成前に停止**します。時計の表示を強調したいわけではない場合は、次のいずれかを使ってください。
-
-- **括弧が不要なら取り除く（推奨）：**
-
-  ```text
-  A clock showing 12:30, (big eyes:0.5)
-  ```
-
-- **括弧も表示・記述したいなら `\(` と `\)` でエスケープする：**
-
-  ```text
-  A clock showing \(12:30\), (big eyes:0.5)
-  ```
-
-実際の入力欄には、上のコードブロックに示したとおり**バックスラッシュを1文字ずつ**入力します。時刻だけでなく、`(1:2)` のような比率やセリフ中の括弧も同様に注意してください。エスケープ表記は、他に有効な重み指定がある場合に構文除去処理で普通の括弧へ戻されます。**重み指定が全くない入力では、拡張は原文を維持するため、括弧が不要なら省く方法が確実です。** OFF／Strength=0では拡張による構文解析自体を行いません。
-
-MOSS Layout JSONでは`summary.caption`と`items[].caption`のみ処理します。看板等に描く`items[].text`、BBOX座標、その他の値を強調構文として処理しません。
-
-## 対応範囲と注意
-
-Base/SFTの手動切替はありません。ファイル名ではなく、ロードされたモデルとCLIPの構造を判定します。
-
-0.9.1で対応する標準経路は、`CLIPTextEncode → KSampler / KSamplerAdvanced`、および`CLIPTextEncode → CFGGuider → SamplerCustomAdvanced`です。Text Multiline等は、この標準エンコーダーへSTRINGを渡す場合に使用できます。
-
-**v0.9.1は、通常のPyTorch/basicに加え、起動引数 `--use-ck-attention` で選択される標準Comfy Kitchen INT8 Attentionを許可**します。対象はComfyUI 0.42.1の公式Attention経路です。MOSS公式`SkipLayerGuidanceDiTSimple`および`SkipLayerGuidanceDiT`は、実際に読み込まれた公式関数のコード同一性で識別して許可します。
-
-モデル内`ComfyAttention.config`で指定されたINT8/SOL（`_attn`派生）、Sage/Flashや他のAttention override、独自SLGは**引き続き非対応**です。Kitchenのマスク付き実GPU生成／速度／VRAMは未検証です。Kitchen以外へ無断で切り替えることはありません。
-
-ModelSamplingSD3と公式SLGの配線・設定は維持しますが、**SLG併用での実GPU一致は未検証**です。EasyUse等の一体型生成経路、Conditioningの平均・連結、Edit/参照画像/Control、NAG、torch.compile、Spectrum/TeaCache等は0.9.1の対象外です。これらでは拡張をOFFにしてください。
-
-KJ版や独立版のPrompt Weightノードを同じ経路へ置いたままONにすると、二重適用防止エラーになります。インストールされているだけなら競合しません。
-
-### Illustrious／Anima／Krea2等で使用するとき
-
-この拡張は**MOSS専用**です。SettingsがONでも、対応する通常のCLIP Text Encode→KSampler経路でMOSS以外のモデルをロードしている場合は、Runtimeがモデル構造を確認し、**重み解釈やMOSS用パッチを行わず、入力原文をそのモデル本来のCLIPエンコーダーへ送ります。** Illustriousの既存SDXL強調やAnimaの既存T5系重み処理などを置き換えません。Krea2の標準Qwen3-VLでMOSSの重み処理が使えるようになるわけではありません。
-
-ただし、SettingsがONの場合は**生成前の静的グラフ検証は実行**されます。未知の一体型サンプラー、独自Guider／Conditioning合成等では、非MOSSでも未対応経路として拒否される場合があります。MOSS以外のワークフローではSettingsをOFFにする運用が最も確実です。非MOSSモデルが同じ名称の構文を必ず解釈するとは限りません。
-
-### v0.9.0からの更新
-
-`0.9.0`で保存された`workflow.extra.moss_emphasis`の設定は、`0.9.1`への更新時に読み取れます。ワークフローを作り直す必要はありません。既存のComfyUI本体、モデル、LoRA、設定は変更せず、この拡張フォルダだけ更新してください。
-
-## 画面には出ない処理について
-
-編集画面のノード・配線は変更しません。ただし送信する実行用グラフには内部ノードを追加します。**実行履歴/API JSONには内部ノードが現れます。** 設定を内部ノードの入力へ含めることで、Strength変更をキャッシュへ反映します。
-
-通常の「API形式で保存」では適用処理を含まない場合があります。再現用には本拡張のSettingsにあるAPI exportを使用してください。画像へのメタデータ保存が元からONなら、編集用ワークフローと実行用グラフを既存経路で保存します。保存OFFを勝手にONにはしません。
-
-削除・無効化する場合は、まずSettingsでOFFにして保存し、ComfyUIを停止してこの拡張フォルダを外します。本体やモデルファイルの復元作業は不要です。
-
-検証内容：[VALIDATION.md](docs/VALIDATION.md)。仕様：[SPEC_0.9.md](docs/SPEC_0.9.md)。GPL-3.0-only。
+[検証結果](docs/VALIDATION.md)では単体テスト・実CPUモジュール・未実施のGPU／画面確認を分けています。GPL-3.0-only。[NOTICE](NOTICE.md)にPPM／KJ／本体の参照元を記載しています。同一画像の完全再現は保証しません。

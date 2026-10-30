@@ -5,7 +5,9 @@ import sys
 import types
 from pathlib import Path
 import logging
-from .config import EmphasisError, coefficients
+import math
+from .config import EmphasisError, coefficients, ENGINE, NEGPIP
+from .negpip import negpip_coefficients, run_attention, MASK_CACHE_KEY
 
 KEY = "moss_emphasis.v1"
 
@@ -100,13 +102,20 @@ def apply_values(v, rows, start, factors):
 
 class ForwardState:
     """One reference and at most one device copy; owned by a cloned ModelPatcher."""
-    def __init__(self, reference, weights, strength):
+    def __init__(self, reference, weights, strength, engine=ENGINE):
         self.reference = reference.detach().cpu().clone()
-        self.weights = tuple(coefficients(w, strength) for w in weights)
+        self.weights = negpip_coefficients(weights, strength) if engine == NEGPIP else tuple(coefficients(w, strength) for w in weights)
+        if any(not math.isfinite(value) for pair in self.weights for value in pair):
+            raise EmphasisError("INVALID_WEIGHT", "Computed weighting coefficients overflowed; reduce the prompt weight or strength.")
+        self.max_coefficient = max(abs(value) for pair in self.weights for value in pair)
         self.device_reference = None
+        self.negpip = engine == NEGPIP
 
     def __call__(self, executor, x, timestep, context, transformer_options=None, **kwargs):
         options = dict(transformer_options or {})
+        if self.negpip:
+            # Owned by this forward only; shallow per-block option copies share it.
+            options[MASK_CACHE_KEY] = {}
         layout = options.get("cond_or_uncond")
         if not isinstance(layout, (list, tuple)) or not layout or any(type(v) is not int or v not in (0, 1) for v in layout) or x.shape[0] % len(layout):
             raise EmphasisError("UNSUPPORTED_CONDITIONING_PATH", "Cannot identify positive/negative batch rows.")
@@ -123,6 +132,8 @@ class ForwardState:
             if any(not torch.equal(context[i], self.device_reference) for i in rows):
                 raise EmphasisError("UNSUPPORTED_CONDITIONING_PATH", "Positive conditioning was modified after encoding.")
             start, length = x.shape[-2] * x.shape[-1], context.shape[1]
+            if self.max_coefficient > torch.finfo(context.dtype).max:
+                raise EmphasisError("INVALID_WEIGHT", f"Computed weighting coefficients exceed {context.dtype}; reduce the prompt weight or strength.")
             factors = torch.tensor([p[0] for p in self.weights], device=context.device, dtype=context.dtype)
             biases = torch.tensor([p[1] for p in self.weights], device=context.device, dtype=context.dtype)
             additive = None
@@ -143,7 +154,7 @@ def is_native_moss(model):
     return False
 
 
-def patch(model, conditioning, weights, strength):
+def patch(model, conditioning, weights, strength, engine=ENGINE):
     from comfy.ldm.modules import attention as attn
     from comfy.patcher_extension import WrappersMP
     diffusion = model.get_model_object("diffusion_model")
@@ -186,6 +197,9 @@ def patch(model, conditioning, weights, strength):
             state = opts.get(KEY)
             if state:
                 rows, start, factors, bias = state
+                if engine == NEGPIP:
+                    return run_attention(backend, attn.AttentionTensorContainer, q, k, v, heads,
+                                         rows, start, len(weights), factors, bias, args, mask, opts, kwargs)
                 if kwargs.get("skip_reshape"):
                     raise EmphasisError("UNSUPPORTED_ATTENTION_BACKEND", "Unexpected pre-reshaped attention input.")
                 kt = k.peek() if isinstance(k, attn.AttentionTensorContainer) else k
@@ -209,6 +223,6 @@ def patch(model, conditioning, weights, strength):
     cloned = model.clone()
     for path, replacement in patches:
         cloned.add_object_patch(path, replacement)
-    cloned.add_wrapper_with_key(WrappersMP.DIFFUSION_MODEL, KEY, ForwardState(conditioning[0][0][0], weights, strength))
+    cloned.add_wrapper_with_key(WrappersMP.DIFFUSION_MODEL, KEY, ForwardState(conditioning[0][0][0], weights, strength, engine))
     logging.info("[MOSS Emphasis] selected attention backend=%s (original global kernel retained)", backend_kind)
     return cloned

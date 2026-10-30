@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Controller, normalize, hideRuntime, RUNTIME, IDS } from "../web/controller.js";
+import { readFileSync } from "node:fs";
+import { Controller, normalize, hideRuntime, RUNTIME, RUNTIME_V2, IDS } from "../web/controller.js";
 
 function fixture(raw = {}) {
   const graph = { extra: { moss_emphasis: normalize(raw) }, beforeChange(){}, afterChange(){}, change(){} };
@@ -70,52 +71,132 @@ test("saved 0.9.0 workflow settings migrate without dropping enabled state", () 
  assert.equal(old.version,"0.9.1");assert.equal(old.enabled,true);assert.equal(old.strength,1.3);
 });
 
-test("an obsolete Settings restore cannot overwrite the active workflow", async () => {
-  const { c, app, store } = fixture({ enabled: true, strength: 1 });
-  const write = store.set.bind(store);
-  let started, resume;
-  const firstWriteStarted = new Promise(resolve => { started = resolve; });
-  const firstWriteGate = new Promise(resolve => { resume = resolve; });
-  let delayed = false;
-  store.set = async (id, value) => {
-    if (!delayed && id === IDS.enabled && value === true) {
-      delayed = true;
-      started();
-      await firstWriteGate;
-    }
-    return write(id, value);
-  };
-
-  const earlier = c.restore();
-  await firstWriteStarted;
-  app.rootGraph = { extra: { moss_emphasis: normalize({ enabled: false, strength: 2 }) } };
-  const later = c.restore();
-  assert.equal(c.ready, false);
-  resume();
-  await Promise.all([earlier, later]);
-
-  assert.equal(store.values[IDS.enabled], false);
-  assert.equal(store.values[IDS.strength], 2);
-  assert.equal(store.values[IDS.diagnostic], false);
-  assert.equal(c.ready, true);
+test("NegPiP selected strength controls preparation and full bypass",async()=>{
+ const {api,app,calls}=fixture({schema_version:2,engine:"ppm_negpip_moss_v1",enabled:true,strength:0});
+ await api.queuePrompt(0,await app.graphToPrompt());assert.ok(calls[0][1].output.internal);
+ app.rootGraph.extra.moss_emphasis.negpip_strength=0;
+ api.fetchApi=()=>{throw Error("must bypass");};await api.queuePrompt(0,await app.graphToPrompt());
+});
+test("engine toggle retains both strengths",async()=>{
+ const {c,app,store}=fixture({enabled:true,strength:0.7});await c.restore();
+ c.change("negpip",true);c.change("negpip_strength",0.45);c.change("negpip",false);c.change("negpip",true);
+ const value=app.rootGraph.extra.moss_emphasis;
+ assert.equal(value.engine,"negpip_auto_v1");assert.equal(value.schema_version,3);assert.equal(value.strength,.7);assert.equal(value.negpip_strength,.45);
+ await c.restore();assert.equal(store.values[IDS.negpip],true);
 });
 
-test("failed Settings restore leaves controller read-only until a successful retry", async () => {
-  const { c, app, store } = fixture({ enabled: true, strength: 1.5 });
-  const write = store.set.bind(store);
-  store.set = async (id, value) => {
-    if (id === IDS.strength) throw new Error("Settings write failed");
-    return write(id, value);
-  };
+test("legacy restore does not upgrade; only an explicit weighting change does",async()=>{
+ const {c,app}=fixture({schema_version:2,engine:"ppm_negpip_moss_v1",enabled:true,strength:.6,negpip_strength:.4});
+ const original=structuredClone(app.rootGraph.extra);await c.restore();assert.deepEqual(app.rootGraph.extra,original);
+ c.change("diagnostic",true);assert.equal(app.rootGraph.extra.moss_emphasis.schema_version,2);
+ c.change("enabled",false);const value=app.rootGraph.extra.moss_emphasis;
+ assert.equal(value.schema_version,3);assert.equal(value.engine,"negpip_auto_v1");assert.equal(value.strength,.6);assert.equal(value.negpip_strength,.4);
+});
+test("new workflow uses auto model mode OFF and hides both runtimes",()=>{
+ assert.equal(normalize().schema_version,3);assert.equal(normalize().enabled,false);
+ const defs={[RUNTIME]:{},[RUNTIME_V2]:{},Other:{}};hideRuntime(defs);assert.deepEqual(Object.keys(defs),["Other"]);
+});
+test("auto mode API export round trips without selecting a concrete model",async()=>{
+ const {c}=fixture({schema_version:3,engine:"negpip_auto_v1",enabled:true,strength:0,negpip_strength:.5});
+ await c.restore();const result=await c.exportApi();const value=result.extra_data.extra_pnginfo.workflow.extra.moss_emphasis;
+ assert.equal(value.schema_version,3);assert.equal(value.engine,"negpip_auto_v1");assert.equal(value.negpip_strength,.5);
+});
+test("schema3 sent to schema2 backend requires restart, without downgrade",async()=>{
+ const {api,app,calls}=fixture({schema_version:3,engine:"native_auto_v1",enabled:true});
+ api.fetchApi=async()=>({ok:false,json:async()=>({error:{code:"INVALID_SETTINGS",message:"Unsupported schema or engine."}})});
+ await assert.rejects(api.queuePrompt(0,await app.graphToPrompt()),/BACKEND_RESTART_REQUIRED/);assert.equal(calls.length,0);
+});
+test("invalid raw workflow is preserved and blocks queue until explicit recovery",async()=>{
+ const {c,app,api,calls}=fixture();const invalid={schema_version:999,enabled:true};app.rootGraph.extra.moss_emphasis=invalid;
+ await c.restore();assert.equal(c.ready,false);assert.equal(app.rootGraph.extra.moss_emphasis,invalid);
+ await assert.rejects(api.queuePrompt(0,await app.graphToPrompt()));assert.equal(calls.length,0);
+ await c.resetSettings();assert.equal(c.ready,true);assert.equal(app.rootGraph.extra.moss_emphasis.enabled,false);
+});
+test("unknown/null fields reject consistently with Python settings",()=>{
+ for(const value of [{schema_version:null},{engine:null},{enabled:null},{strength:null},{negpip_strength:null},{engine_version:2},{negpip_strength:1.1}])
+   assert.throws(()=>normalize(value));
+});
+test("restores serialize writes across workflow switches",async()=>{
+ const {c,app,store}=fixture({enabled:true});let release;const original=store.set.bind(store);let first=true;
+ store.set=async(k,v)=>{if(first){first=false;await new Promise(r=>release=r);}await original(k,v);};
+ const a=c.restore();await Promise.resolve();app.rootGraph={extra:{moss_emphasis:normalize({schema_version:2,engine:"ppm_negpip_moss_v1",enabled:true,negpip_strength:.25})}};
+ const b=c.restore();release();await Promise.all([a,b]);
+ assert.equal(store.values[IDS.negpip],true);assert.equal(store.values[IDS.negpip_strength],.25);assert.equal(c.ready,true);
+});
+test("NegPiP API export restores an identical settings snapshot",async()=>{
+ const {c,app}=fixture({schema_version:2,engine:"ppm_negpip_moss_v1",enabled:true,negpip_strength:.75});
+ const saved=await c.exportApi();assert.deepEqual(saved.extra_data.extra_pnginfo.workflow.extra.moss_emphasis,app.rootGraph.extra.moss_emphasis);
+});
 
-  await assert.rejects(c.restore(), /Settings write failed/);
-  assert.equal(c.ready, false);
-  c.change("enabled", false);
-  assert.equal(app.rootGraph.extra.moss_emphasis.enabled, true);
+test("Settings write failure blocks queue and API export even when weighting is OFF",async()=>{
+ for (const enabled of [false,true]) {
+  const {c,app,api,calls,store}=fixture({enabled});const saved=structuredClone(app.rootGraph.extra);
+  store.set=async()=>{throw Error("Settings write failed");};
+  await assert.rejects(c.restore(),/Settings write failed/);
+  assert.equal(c.ready,false);assert.ok(c.restoreError);
+  await assert.rejects(api.queuePrompt(0,await app.graphToPrompt()),/restoration failed/);
+  await assert.rejects(c.exportApi(),/restoration failed/);
+  assert.equal(calls.length,0);assert.deepEqual(app.rootGraph.extra,saved);
+ }
+});
+test("missing Settings API blocks admission and successful retry recovers",async()=>{
+ const {c,app,api,calls,store}=fixture({enabled:true});app.extensionManager.setting={};
+ await assert.rejects(c.restore(),/Settings API/);
+ await assert.rejects(api.queuePrompt(0,await app.graphToPrompt()),/restoration failed/);
+ app.extensionManager.setting=store;await c.restore();assert.equal(c.restoreError,null);
+ await api.queuePrompt(0,await app.graphToPrompt());assert.equal(calls.length,1);
+});
+test("partial restore failure blocks until explicit reset succeeds",async()=>{
+ const {c,app,api,calls,store}=fixture({enabled:true});const set=store.set.bind(store);let writes=0;
+ store.set=async(k,v)=>{if(++writes===3)throw Error("third write failed");await set(k,v);};
+ await assert.rejects(c.restore(),/third write/);
+ await assert.rejects(c.exportApi(),/restoration failed/);
+ store.set=set;await c.resetSettings();assert.equal(app.rootGraph.extra.moss_emphasis.enabled,false);
+ await api.queuePrompt(0,await app.graphToPrompt());assert.equal(calls.length,1);
+});
+test("pending restore rejects admission without retaining the queued request",async()=>{
+ const {c,app,api,calls,store}=fixture({enabled:true});let release;const set=store.set.bind(store);let first=true;
+ store.set=async(k,v)=>{if(first){first=false;await new Promise(r=>release=r);}await set(k,v);};
+ const restoring=c.restore();await Promise.resolve();
+ await assert.rejects(api.queuePrompt(0,await app.graphToPrompt()),/still restoring/);assert.equal(calls.length,0);
+ release();await restoring;assert.equal(calls.length,0);
+ await api.queuePrompt(0,await app.graphToPrompt());assert.equal(calls.length,1);
+});
+test("late failure in an old tab does not poison the restored current tab",async()=>{
+ const {c,app,api,calls,store}=fixture({enabled:true});const set=store.set.bind(store);let rejectOld;let first=true;
+ store.set=async(k,v)=>{if(first){first=false;await new Promise((_,reject)=>rejectOld=reject);}await set(k,v);};
+ const oldGraph=app.rootGraph;const old=c.restore();await Promise.resolve();
+ app.rootGraph={extra:{moss_emphasis:normalize({enabled:false})}};const current=c.restore();
+ rejectOld(Error("old tab failed"));await assert.rejects(old,/old tab/);await current;
+ assert.equal(c.ready,true);assert.equal(c.restoreError,null);
+ await api.queuePrompt(0,await app.graphToPrompt());assert.equal(calls.length,1);
+ app.rootGraph=oldGraph;await assert.rejects(api.queuePrompt(0,await app.graphToPrompt()),/restoration failed/);
+});
+test("already admitted submission keeps its snapshot when a later tab restore fails",async()=>{
+ const {c,app,api,calls,store}=fixture({enabled:true});await c.restore();let release;
+ api.fetchApi=async(_url,options)=>{const body=JSON.parse(options.body);await new Promise(r=>release=r);return {ok:true,json:async()=>({prompt:body.prompt,settings:body.settings,targets:[]})};};
+ const pending=api.queuePrompt(0,await app.graphToPrompt());
+ app.rootGraph={extra:{moss_emphasis:normalize({enabled:false})}};store.set=async()=>{throw Error("new tab failed");};
+ await assert.rejects(c.restore(),/new tab/);release();await pending;
+ assert.equal(calls.length,1);assert.equal(calls[0][1].workflow.extra.moss_emphasis.enabled,true);
+});
 
-  store.set = write;
-  await c.restore();
-  assert.equal(c.ready, true);
-  assert.equal(store.values[IDS.enabled], true);
-  assert.equal(store.values[IDS.strength], 1.5);
+test("native Settings sort keeps each enable control before its strength",()=>{
+ let extension;
+ const app={registerExtension(value){extension=value;}};
+ const source=readFileSync(new URL('../web/moss_emphasis.js',import.meta.url),'utf8').replace(/^import .*;\r?\n/gm,'');
+ new Function('app','api','Controller','IDS','hideRuntime','normalize',source)(app,{},Controller,IDS,hideRuntime,normalize);
+ // Installed SettingDialog sorts descending by sortOrder after flattenTree.
+ const general=extension.settings.filter(s=>s.category[1]==='General').reverse().sort((a,b)=>(b.sortOrder??0)-(a.sortOrder??0));
+ assert.deepEqual(general.map(s=>s.id),[IDS.enabled,IDS.strength,IDS.negpip,IDS.negpip_strength,IDS.status]);
+ assert.equal(extension.settings.find(s=>s.id===IDS.enabled).defaultValue,false);
+ assert.equal(extension.settings.find(s=>s.id===IDS.negpip).defaultValue,false);
+});
+test("old Python schema rejection explains restart in the UI locale and never queues",async()=>{
+ for(const locale of ['en','ja']) {
+  const {api,c,app,store,calls}=fixture({enabled:true});store.get=()=>locale;
+  api.fetchApi=async()=>({ok:false,json:async()=>({error:{code:'INVALID_SETTINGS',message:'Unsupported schema_version: 2.'}})});
+  await assert.rejects(api.queuePrompt(0,await app.graphToPrompt()),locale==='ja'?/ComfyUI本体を再起動/:/Restart ComfyUI itself/);
+  await assert.rejects(c.exportApi(),/BACKEND_RESTART_REQUIRED/);assert.equal(calls.length,0);
+ }
 });

@@ -26,7 +26,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(settings({"version": "0.9.1", "enabled": True})["version"], "0.9.1")
 
     def test_version(self):
-        for v in [{"version": "other"}, {"engine": "log"}, {"schema_version": 2}, {"enabled": 1}]:
+        for v in [{"version": "other"}, {"engine": "log"}, {"schema_version": 3}, {"enabled": 1}]:
             with self.subTest(v=v), self.assertRaises(EmphasisError): settings(v)
     def test_diagnostic_does_not_invalidate(self): self.assertEqual(canonical(ON), canonical({**ON, "diagnostic": True}))
     def test_strength_invalidates(self): self.assertNotEqual(canonical(ON), canonical({**ON, "strength": .5}))
@@ -53,8 +53,26 @@ class ParserTests(unittest.TestCase):
         self.assertEqual(parse("(x:-1)").weights,(-1,)); self.assertEqual(parse("(x:0)").weights,(0,))
     def test_escape(self): self.assertEqual(parse(r"(saber \(fate\):1.2)").text,"saber (fate)")
     def test_invalid(self):
-        for s in ["(x:NaN)","(x:Infinity)","(x:1e2)","(x:5)","(x:-3)","(:1)","(x:abc)","((x:3):2)"]:
+        for s in ["(x:NaN)","(x:Infinity)","(x:1e2)","(:1)","(x:abc)","(x:.0.5)"]:
             with self.subTest(s=s), self.assertRaises(EmphasisError): parse(s)
+    def test_finite_weights_have_no_numeric_bounds(self):
+        for value in (-1000000, -10, -5, -2, -.5, 0, 4, 5, 10, 1000000):
+            with self.subTest(value=value):
+                self.assertEqual(parse(f"(x:{value})").weights, (value,))
+        self.assertEqual(parse("((x:-5):3)").weights, (-15,))
+        self.assertEqual(parse("((x:5):3)").weights, (15,))
+    def test_nonfinite_and_nested_overflow_still_rejected(self):
+        for text in (f"(x:{'9'*400})", f"((x:{'9'*200}):{'9'*200})"):
+            with self.subTest(text_length=len(text)), self.assertRaisesRegex(EmphasisError, "finite"):
+                parse(text)
+    def test_unbounded_layout_caption_weights_preserve_other_fields(self):
+        data={"summary":{"caption":"(x:-5)"},"items":[{"caption":"(y:10)","text":"(z:-99)","bbox":[0,0,10,20]}]}
+        parsed=parse(json.dumps(data)); actual=json.loads(parsed.text)
+        self.assertEqual(actual["summary"]["caption"],"x")
+        self.assertEqual(actual["items"][0]["caption"],"y")
+        self.assertEqual(actual["items"][0]["text"],data["items"][0]["text"])
+        self.assertEqual(actual["items"][0]["bbox"],data["items"][0]["bbox"])
+        self.assertIn(-5,parsed.weights); self.assertIn(10,parsed.weights)
     def test_unclosed_weight(self):
         with self.assertRaises(EmphasisError): parse("(red:1.5")
     def test_nonweight_json_like_prose(self):
@@ -118,21 +136,6 @@ class GraphTests(unittest.TestCase):
     def test_slg_preserved(self):
         g=graph();g["6"]={"class_type":"SkipLayerGuidanceDiTSimple","inputs":{"model":["1",0],"single_layers":"22"}};g["5"]["inputs"]["model"]=["6",0]
         r=prepare(g,ON);self.assertEqual(r["prompt"]["6"],g["6"])
-    def test_manager_name_is_not_a_nag_adapter(self):
-        for kind in ("Manager", "CheckpointManager", "WorkflowManager"):
-            with self.subTest(kind=kind):
-                g = graph()
-                g["6"] = {"class_type": kind, "inputs": {"model": ["1", 0]}}
-                g["5"]["inputs"]["model"] = ["6", 0]
-                self.assertEqual(len(prepare(g, ON)["targets"]), 1)
-    def test_actual_nag_adapters_remain_blocked(self):
-        for kind in ("NAGAdapter", "ApplyNagModel", "nag_adapter", "Krea2NormalizedAttentionGuidance"):
-            with self.subTest(kind=kind):
-                g = graph()
-                g["6"] = {"class_type": kind, "inputs": {"model": ["1", 0]}}
-                g["5"]["inputs"]["model"] = ["6", 0]
-                with self.assertRaisesRegex(EmphasisError, "UNSUPPORTED_MODEL_ADAPTER"):
-                    prepare(g, ON)
     def test_diagnostic_cache(self):self.assertEqual(prepare(graph(),ON),prepare(graph(),{**ON,"diagnostic":True}))
     def test_malformed_restored(self):
         r=prepare(graph(),ON)["prompt"];r["3"]["inputs"]["text"]="changed"

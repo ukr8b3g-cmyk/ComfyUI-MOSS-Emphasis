@@ -1,101 +1,102 @@
 # ComfyUI-MOSS-Emphasis
 
-**MOSS Emphasis 0.9.1 — experimental beta.** Use explicit `(phrase:weight)` syntax in ordinary **CLIP Text Encode** or upstream **Text Multiline** nodes. Configure it in **Settings → MOSS Emphasis**. No prompt-weight node needs to be placed on the canvas.
+[日本語](README_JA.md) · [Validation](docs/VALIDATION.md) · [Attribution](NOTICE.md)
 
-[日本語の説明](README_JA.md) · [0.9 release notes](docs/RELEASE_NOTES_0.9.md) · [Validation and limitations](docs/VALIDATION.md)
+Prompt weighting and **NegPiP** from **Settings → MOSS Emphasis**, using ordinary **CLIP Text Encode**. No prompt-weight node needs to be placed on the canvas.
 
-> CPU unit/contract tests are included. Real MOSS Base/SFT GPU generation and the actual ComfyUI browser UI have **not** been verified for this release. This is not a production-certified release.
+The development branch adds native **SDXL / Illustrious and Anima** alongside MOSS-Image. These additions are CPU-tested experimental functionality; the existing **0.9.1 release/tag is unchanged**. GPU quality, speed and VRAM for the new adapters have not been tested.
 
-## Install
+## Install / update
 
-From your existing ComfyUI `custom_nodes` folder:
+Run in ComfyUI's `custom_nodes` directory:
 
 ```sh
 git clone https://github.com/ukr8b3g-cmyk/ComfyUI-MOSS-Emphasis.git
 ```
 
-Or extract the release ZIP so `ComfyUI/custom_nodes/ComfyUI-MOSS-Emphasis/__init__.py` exists. Restart ComfyUI and reload the browser. **No additional pip dependencies, model downloads, KJNodes installation or LLM are required.** Uses PyTorch and aiohttp already provided by ComfyUI.
+For an existing installation, update the repository, **restart ComfyUI itself**, then reload the browser. A browser refresh alone cannot load new Python code. No additional pip dependencies, PPM/KJNodes installation or model downloads are required. Use a recent ComfyUI with native support for the selected model and the V3 node API; see the tested version in [Validation](docs/VALIDATION.md).
 
-Requires **native ComfyUI MOSS-Image support**, its MOSS Qwen3.5 tokenizer, `ComfyAttention` / `AttentionTensorContainer`, and the documented extension Settings API. The standalone OpenMOSS HF-loader plugin is not an adapter supported by 0.9.
+## Choose a method
 
-## Use
+Keep your normal model, positive and negative wiring. Open **Settings → MOSS Emphasis**:
 
-![MOSS Emphasis Settings (English UI)](docs/images/moss-emphasis-settings.webp)
+| Setting | Meaning |
+|---|---|
+| Enable prompt weighting | Master switch, saved per workflow. New workflows start OFF. |
+| Strength | Normal emphasis only, 0–4; start at 1. |
+| Use NegPiP | OFF = normal emphasis; ON = model-specific NegPiP. The methods are exclusive. |
+| NegPiP effect | NegPiP only, 0–1; start at 1. |
+| Current method | Shows the method and auto model / legacy MOSS mode. |
 
-*Settings screenshot in English. When ComfyUI language is Japanese, section headings, settings names, hover-help tooltips and the API export dropdown are translated automatically via ComfyUI's native custom-node i18n loader. See the [Japanese guide](README_JA.md).*
+In auto mode, actual **MODEL and CLIP types** select the adapter; checkpoint filenames do not. There is no model selection menu. Use NegPiP does not activate anything while the master switch is OFF. The inactive strength is retained but ignored.
 
-Keep your normal positive/negative/model wiring. In Settings → MOSS Emphasis:
+The selected strength/effect at **0**, or master OFF, bypasses the extension completely. **Native SDXL/Anima weighting still applies to the original text.** Extension OFF does not disable a model's built-in weighting.
 
-- **Enable prompt weighting:** ON for the current workflow. New workflows default to OFF.
-- **Strength:** start at 1.00. Both OFF and Strength 0 completely bypass rewriting, including syntax removal.
-- **Diagnostic logging:** optional settings/target-ID logging. Full prompt text is not logged.
+![Earlier MOSS Emphasis Settings UI](docs/images/moss-emphasis-settings.webp)
 
-For example, in the normal positive field:
+*This image predates NegPiP controls. Current order: Enable → Strength → Use NegPiP → NegPiP effect → Current method. ComfyUI's Japanese locale translates labels and hover help; persisted IDs stay unchanged.*
+
+## Model support
+
+| Model | Normal emphasis | NegPiP at effect 1 | Status |
+|---|---|---|---|
+| Native MOSS-Image Base / SFT | Existing KJ-style Value scaling / attention bias | PPM-reference log-absolute-weight bias and Value sign | Existing arithmetic preserved; CPU regressions |
+| Native SDXL Base / Illustrious | Native CLIP-L/G weighting | Absolute CLIP weights, separate Key/Value; negative weights reverse Value | CPU tokenization, encoding, batching and real attention-module tests |
+| Native Anima | Native T5 token weights after the Qwen adapter | Absolute T5 weights and negative-token Value sign | CPU preprocessing, deferred forward, padding, batching and real attention-module tests |
+| Krea2, SDXL Refiner, other architectures | Unsupported in auto mode | Unsupported | Turn this extension OFF |
+
+Illustrious uses the native SDXL architecture route, not a filename allowlist. No Illustrious/Anima checkpoint was loaded for these tests. Anima uses existing T5 **tokenizer metadata**; this extension does not load a T5 encoder model. MODEL and CLIP must be a matching native pair.
+
+**Positive weighting is the scope.** Negative retains its native numerical meaning, including native weights it already contains. SDXL NegPiP internally transports identical K/V copies of Negative to compensate for the attention split; it does not reinterpret Negative with NegPiP.
+
+## Prompt weights and zero
 
 ```text
-portrait, (big eyes:0.5), (long hair:1.2), soft lighting
+1girl, (red hair:1.2), (realistic:-5)
 ```
 
-A STRING from Text Multiline, concatenation, or CSV nodes works when it reaches ordinary `CLIPTextEncode.text`. Base and SFT use the same native architecture adapter; there is no Base/SFT switch. Negative is left on its original path, and negative-field weighting is not added.
+A negative number is interpreted within the selected method; it does not automatically switch to NegPiP. Prompt weights have no fixed min/max. Non-finite values, overflowing coefficients and unrepresentable conditioning are rejected. Larger magnitudes do not guarantee stronger visual suppression.
 
-The Settings values belong to the **workflow**, not a live server-global switch. They are stored at `workflow.extra.moss_emphasis`. Each queued job captures its own values. PNG restoration works through the original workflow metadata when your image saver already saves that metadata; the extension does not force metadata saving on.
+| Model, strength/effect = 1 | Weight 0 | Weight 1 |
+|---|---|---|
+| MOSS normal | Value multiplier 0; Key remains | Ordinary weight |
+| MOSS NegPiP | Absolute weight floored to 1e-4 for bias; positive Value sign | Relative weight 1; normalized with other tokens |
+| SDXL normal / NegPiP | Empty-prompt-reference embedding; positive NegPiP sign | Native embedding |
+| Anima normal / NegPiP | Corresponding adapted context multiplied by 0; positive NegPiP sign | Native weight |
 
-## Syntax
+None guarantees concept deletion. `(realistic:1)` is ordinary weighting, not a special realism boost.
 
-| Input | Meaning |
-|---|---|
-| `(phrase:0.5)` | Reduce the phrase's Value contribution |
-| `(phrase:1)` | Remove explicit syntax; ordinary strength |
-| `(phrase:1.5)` | Increase attention logit bias |
-| `(phrase:0)` / `(phrase:-1)` | Zero / reverse Value at Strength 1; **not guaranteed concept removal** |
-| `saber (fate)` | Literal parentheses, not implicit emphasis |
-| `(saber (fate):1.2)` | Weight the name while preserving its inner parentheses |
-| `((red hair:1.2):1.1)` | Multiply explicit nested weights: 1.32 |
+**Syntax differs by model:** MOSS preserves explicit decimal syntax, literal unweighted parentheses, nested products, 128-group/16-level limits and character-position mapping. Its Layout JSON protection applies only to `summary.caption` / `items[].caption`. SDXL/Anima use their **native tokenizer's** parentheses, escaping, nesting and token weights. MOSS JSON protection does not apply to them; this is not an A1111/Compel normalization mode.
 
-Explicit and effective weights must be finite decimals within -2..4; maximum 128 weighted groups and 16 nesting levels. Escape literal parentheses/colons with backslashes when they would otherwise look like weight syntax. Weights affect only the marked occurrence, not every identical phrase. Boundary tokens use non-whitespace UTF-8 byte coverage.
+For SDXL/Anima normal emphasis, Strength `s` maps token weight `w` to `1+s*(w-1)`. NegPiP effect `t` uses `1+t*(abs(w)-1)` and negative Value multiplier `1-2*t`. Effect **1** is the pinned PPM equation comparison point; intermediate effects are extension-specific. At **0.5**, negative-token Value becomes zero but the token remains. MOSS retains its log-bias interpolation.
 
-**MOSS Layout JSON:** only `summary.caption` and `items[].caption` are interpreted. `items[].text`, boxes, labels and palettes are protected. Do not weight an entire JSON object. Krea2 JSON conversion is not part of this extension.
+## Workflows and compatibility
 
-## 0.9.1 compatibility boundary
+Supported: ordinary `CLIPTextEncode → KSampler / KSamplerAdvanced`, or `CLIPTextEncode → CFGGuider → SamplerCustomAdvanced`. Text Multiline/CSV/concatenation can feed `CLIPTextEncode.text`. Standard LoRA and CLIP skip stay on the native encoder path.
 
-Supported execution contracts:
+Initial scope excludes `CLIPTextEncodeSDXL`, Advanced CLIP, regional/scheduled/combined conditioning, ControlNet/IPAdapter, Refiner, standalone HF loaders and integrated custom samplers. Upstream weighting/attn2 replacement patches are rejected. Use OFF for unsupported workflows.
 
-- `CLIPTextEncode → KSampler` or `KSamplerAdvanced`.
-- `CLIPTextEncode → CFGGuider → SamplerCustomAdvanced`.
-- Native MOSS-Image architecture and native MOSS Qwen3.5 CLIP.
-- PyTorch/basic or global Comfy Kitchen INT8 via `--use-ck-attention` (native ComfyUI 0.42.1 interface). Original attention backend is retained; prequantized `AttentionTensorContainer` ownership and additive masks are preserved in the integration contract.
-- Official `SkipLayerGuidanceDiTSimple` and `SkipLayerGuidanceDiT` functions loaded under absolute filesystem module names are allowed using trusted code-object identity, not a brittle module-name string. **Real SLG/Kitchen GPU operation remains unverified.**
+MOSS retains its existing backend boundary: PyTorch/basic, native global Comfy Kitchen INT8 (`--use-ck-attention`) integration and official SLG callbacks; no Sage/Flash/SOL override or configured per-layer INT8. Real Kitchen/SLG GPU operation remains unverified. SDXL/Anima use native hooks and retain the selected kernel; CPU tests do not certify every GPU backend.
 
-Intentionally rejected rather than silently changed: per-layer configured INT8/SOL attention (`_attn` checkpoints), Sage/Flash overrides, torch.compile, Spectrum/TeaCache/NAG, MOSS Edit/reference/control/video paths, condition averaging/concatenation/regions/schedules, unknown guiders and integrated custom pipelines. Quantized *weights* are different from quantized *attention*: an otherwise native model with ordinary attention can pass the adapter, but real quantized-model generation remains unverified.
+Saved **schema 1/2** workflows retain their old MOSS-only behavior. Loading them does not silently activate weighting on other models. To enable auto model mode, explicitly change a weighting setting (e.g. master OFF then ON), then save. Status changes from **legacy MOSS** to **auto model**. Diagnostic logging alone does not migrate the workflow. Both strengths survive method changes and tab switches.
 
-Turn the extension OFF for unsupported workflows. It never changes CFG, steps, seed, sampler, scheduler, Shift, model files or ComfyUI source files. Ordinary non-MOSS model paths pass through at runtime without stripping the text.
+Private runtime nodes are inserted only into a copy of the execution graph; editor wiring stays intact. Each job captures its settings, which participate in caching. No global tokenizer/attention replacement, model-file changes or ComfyUI source modifications. CFG, sampler and scheduler stay unchanged.
 
-## Other model families and saved workflow compatibility
+## API and tests
 
-With the standard CLIPTextEncode → KSampler graph, this extension leaves **Illustrious/SDXL, Anima and Krea2** MODEL and original text untouched. MOSS syntax processing is not applied to other architectures. The ordinary encoder retains whatever weighting that model natively supports (Anima's T5 and Qwen branches differ; Krea2 Qwen3-VL ignores standard per-token weights). Advanced or integrated *non-MOSS* graphs may still fail the initial static path checks while Settings is ON; use OFF for non-MOSS workflows to guarantee compatibility.
-
-Settings and prepared graphs saved by version **0.9.0** are accepted and migrated to **0.9.1** without changing existing workflow wiring.
-
-## API and transparency
-
-The visible editor graph stays unchanged. A **private runtime node is added to a copy of the execution graph**, so it does appear in API execution records. Runtime inputs include versioned settings, which participate in ComfyUI's cache; changing Strength invalidates the correct computation. Existing KJ or independent MOSS weight nodes on the same path are rejected to avoid double weighting.
-
-Use Settings → MOSS Emphasis → API export → **Export execution API JSON**, or call:
+Use **Settings → MOSS Emphasis → API export → Export execution API JSON**, or prepare an actual API graph with:
 
 ```json
 POST /moss_emphasis/prepare
-{"schema_version":1,"prompt":{...},"settings":{"enabled":true,"strength":1.0,"engine":"kj_dit_v1"}}
+{"schema_version":1,"prompt":{},"settings":{"schema_version":3,"enabled":true,"engine":"negpip_auto_v1","strength":1,"negpip_strength":1}}
 ```
 
-Send the returned `prompt` to the standard `/prompt` endpoint. Preparation errors never fall back to unweighted queueing. Ordinary ComfyUI API export does **not** necessarily include the runtime transformation. Exported prepared API JSON requires this extension; editable workflow JSON uses ordinary nodes and can be opened without it (weighting then requires reinstalling the extension).
-
-## Tests and design
+Replace `prompt` with the actual graph, then send the returned `prompt` to `/prompt`. Preparation failures never queue an unweighted fallback. The prepare envelope stays version 1; workflow settings use schema 3. Prepared graphs require this extension. Ordinary ComfyUI API export may omit the transformation.
 
 ```sh
 python -m unittest discover -s tests -v
-node --test tests/*.test.mjs
+node --test tests/frontend.test.mjs tests/locales.test.mjs
+python -B tests/native_contract.py --comfy-root /path/to/ComfyUI
 ```
 
-The full Python suite needs the existing ComfyUI dependencies `torch` and `aiohttp`; tests are skipped if those packages are absent. No GPU weights are downloaded by the tests. See [implementation design](docs/SPEC_0.9.md).
-
-GPL-3.0-only. [Attribution / upstream interfaces](NOTICE.md). KJ equations are used as the numerical basis, **not a promise of identical generated images**. The parser and workflow integration deliberately differ.
+[Validation](docs/VALIDATION.md) separates unit tests, real CPU module contracts and unperformed GPU/UI checks. GPL-3.0-only; [NOTICE](NOTICE.md) lists PPM/KJ/native references. No promise of identical generated images.

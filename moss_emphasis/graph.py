@@ -4,10 +4,10 @@ import copy
 import hashlib
 import json
 import re
-from .config import EmphasisError, RUNTIME, settings, canonical
+from .config import EmphasisError, RUNTIME, RUNTIME_V2, settings, canonical, active_strength
 
 TARGETS = {"KSampler", "KSamplerAdvanced", "CFGGuider"}
-CONFLICTS = {"MossImagePromptWeight", "MOSSImagePromptWeight"}
+CONFLICTS = {"MossImagePromptWeight", "MOSSImagePromptWeight", "CLIPNegPip"}
 FORBIDDEN = ("torchcompile", "teacache", "spectrum", "normalizedattentionguidance", "mossimagecontrol", "textencodemossimageedit")
 # Match the NAG acronym as a node-name component, not inside words like "Manager".
 NAG_MARKER = re.compile(r"NAG|Nag|(?:^|[^A-Za-z])nag")
@@ -47,7 +47,7 @@ def _validate(prompt):
 def _restore(prompt):
     for key in list(prompt):
         node = prompt[key]
-        if node["class_type"] != RUNTIME:
+        if node["class_type"] not in (RUNTIME, RUNTIME_V2):
             continue
         inp = node["inputs"]
         try:
@@ -59,6 +59,10 @@ def _restore(prompt):
                 raise ValueError("links")
             if enc["inputs"]["clip"] != inp["clip"] or enc["inputs"]["text"] != inp["text"]:
                 raise ValueError("source changed")
+            if node["class_type"] == RUNTIME_V2:
+                if dest["negative"] != [key, 2] or inp["negative"] != source["negative"]:
+                    raise ValueError("negative changed")
+                dest["negative"] = inp["negative"]
             for other, data in prompt.items():
                 for v in data["inputs"].values():
                     if link(v) and v[0] == key and other != target:
@@ -86,9 +90,10 @@ def prepare(prompt: dict, config: dict) -> dict:
     _validate(prompt)
     result = copy.deepcopy(prompt)
     _restore(result)
-    if not snapshot["enabled"] or snapshot["strength"] == 0:
+    if not snapshot["enabled"] or active_strength(snapshot) == 0:
         return {"prompt": result, "settings": snapshot, "targets": [], "warnings": []}
     targets = []
+    auto = snapshot["schema_version"] == 3
     for key, node in list(result.items()):
         kind, inputs = node["class_type"], node["inputs"]
         unsupported = (kind not in TARGETS and (("sampler" in kind.lower() and ("positive" in inputs or "pipe" in inputs)) or "guider" in kind.lower()))
@@ -100,7 +105,7 @@ def prepare(prompt: dict, config: dict) -> dict:
             raise EmphasisError("UNSUPPORTED_CONDITIONING_PATH", "This sampler/guider is not supported in 0.9; disable MOSS Emphasis for this workflow.", key)
         if kind not in TARGETS:
             continue
-        for name in ("model", "positive"):
+        for name in (("model", "positive", "negative") if auto else ("model", "positive")):
             if not link(inputs.get(name)):
                 raise EmphasisError("UNSUPPORTED_CONDITIONING_PATH", f"Expected a {name} link.", key)
             for upstream, data in _ancestors(result, inputs[name][0]):
@@ -119,9 +124,15 @@ def prepare(prompt: dict, config: dict) -> dict:
         runtime_id = "_moss_emphasis_" + hashlib.sha256(key.encode()).hexdigest()[:16]
         if runtime_id in result:
             raise EmphasisError("NODE_ID_COLLISION", "Internal ID already exists.", key)
-        result[runtime_id] = {"class_type": RUNTIME, "inputs": {
+        source = {"encoder": encoder, "target": key}
+        if auto:
+            source["negative"] = copy.deepcopy(inputs["negative"])
+        result[runtime_id] = {"class_type": RUNTIME_V2 if auto else RUNTIME, "inputs": {
             "model": copy.deepcopy(inputs["model"]), "clip": copy.deepcopy(ein["clip"]), "text": copy.deepcopy(ein["text"]),
-            "settings_json": canonical(snapshot), "source": json.dumps({"encoder": encoder, "target": key}, sort_keys=True)}}
+            "settings_json": canonical(snapshot), "source": json.dumps(source, sort_keys=True)}}
+        if auto:
+            result[runtime_id]["inputs"]["negative"] = copy.deepcopy(inputs["negative"])
+            inputs["negative"] = [runtime_id, 2]
         inputs["model"], inputs["positive"] = [runtime_id, 0], [runtime_id, 1]
         targets.append({"target": key, "encoder": encoder, "runtime": runtime_id})
     if not targets:

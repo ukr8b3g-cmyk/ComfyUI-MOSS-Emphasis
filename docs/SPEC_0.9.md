@@ -1,5 +1,7 @@
 # MOSS Emphasis 0.9 implementation contract
 
+Historical MOSS-only design. Current schema-3 SDXL/Anima behavior, NegPiP and model boundaries are documented in [README](../README.md) and [Validation](VALIDATION.md).
+
 This is the implementation of the 2026-10-24 V1 design, released as a **0.9 beta**, not as completion of the real-browser/GPU acceptance gates.
 
 ## Execution architecture
@@ -12,7 +14,7 @@ Internal runtime definitions are removed from the frontend node-add lists, not f
 
 ## Parser/token contract
 
-Only explicit finite decimal weights are supported. Individual and nested effective weights: -2..4. Nesting: 16. Weighted groups: 128. Input length: 262144 characters. A prompt with no weight processing is returned exactly as received; it is not reformatted or normalized by this extension. ON with `(x:1)` removes the syntax. OFF/Strength 0 does not.
+Only explicit finite decimal weights are supported. Local revision 2026-10-31 removes the numeric bounds on individual and nested effective weights; non-finite values and coefficient overflow remain errors. Nesting: 16. Weighted groups: 128. Input length: 262144 characters. A prompt with no weight processing is returned exactly as received; it is not reformatted or normalized by this extension. ON with `(x:1)` removes the syntax. OFF/Strength 0 does not.
 
 Positions, not repeated phrase searches, determine weights. Explicit nested weights multiply. Literal character-name parentheses survive. MOSS Layout JSON edits only `summary.caption` and `items[].caption`, preserving other strings/values and unedited source formatting. Unweighted text is not reserialized.
 

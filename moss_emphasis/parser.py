@@ -17,8 +17,8 @@ class Parsed:
 
 
 def _checked(w: float) -> float:
-    if not math.isfinite(w) or not -2 <= w <= 4:
-        raise EmphasisError("INVALID_WEIGHT", "Each explicit and nested effective weight must be finite and within -2..4.")
+    if not math.isfinite(w):
+        raise EmphasisError("INVALID_WEIGHT", "Each explicit and nested effective weight must be finite.")
     return w
 
 

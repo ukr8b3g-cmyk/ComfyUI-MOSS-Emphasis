@@ -5,7 +5,7 @@
   },
   "MOSSEmphasis_General_Strength": {
     "name": "重み付け強度",
-    "tooltip": "すべての重み指定の効果を調整します。1.00が標準、0.00は構文変換を含む完全バイパスです。1.00を超えると強調だけでなく抑制や負の重みの作用も強くなります。範囲は0.00～4.00です。"
+    "tooltip": "1はMOSSでは従来のKJ式、SDXL／Illustrious・Animaでは標準のトークン重みです。0は本拡張をバイパスしますが、モデル標準の重み処理は残ります。1を超えると強調と抑制が強まります。範囲は0～4です。"
   },
   "MOSSEmphasis_Advanced_Diagnostic": {
     "name": "診断ログ",
@@ -16,7 +16,20 @@
     "tooltip": "MOSS Emphasisの重み処理を含めた実行用API JSONを書き出します。ComfyUI標準のAPI形式で保存しただけでは、内部の重み処理が含まれない場合があります。",
     "options": {
       "Select action": "操作を選択",
-      "Export execution API JSON": "実行用API JSONを書き出す"
+      "Export execution API JSON": "実行用API JSONを書き出す",
+      "Reset workflow settings": "ワークフローの設定をリセット"
     }
+  },
+  "MOSSEmphasis_General_NegPiP": {
+    "name": "NegPiP方式を使用",
+    "tooltip": "ONでモデル別のPPM参照NegPiP、OFFで通常方式を使います。MODELとCLIPからMOSS、SDXL／Illustrious、標準Animaを自動判定します。Negativeの標準の意味は維持します。重み設定を操作すると旧ワークフローもモデル自動判定へ移行します。"
+  },
+  "MOSSEmphasis_General_NegPiPStrength": {
+    "name": "NegPiP効果",
+    "tooltip": "1が参照数式、0は構文処理も含む完全バイパスです。0.5で負の語のValueは0になりますが、トークン削除ではありません。この効果調整は独自の追加機能です。"
+  },
+  "MOSSEmphasis_General_Status": {
+    "name": "現在の方式",
+    "tooltip": "現在のワークフローに保存された方式と有効な強さから状態を表示します。設定エラーの場合は、ツールの設定リセットで明示的に復旧してください。"
   }
 }

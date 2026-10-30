@@ -5,7 +5,11 @@ import math
 from . import VERSION
 
 ENGINE = "kj_dit_v1"
+NEGPIP = "ppm_negpip_moss_v1"
 RUNTIME = "_MossEmphasisRuntimeV1"
+RUNTIME_V2 = "_MossEmphasisRuntimeV2"
+AUTO_ENGINE = "native_auto_v1"
+AUTO_NEGPIP = "negpip_auto_v1"
 MAX_TEXT = 262144
 
 class EmphasisError(ValueError):
@@ -24,7 +28,12 @@ def settings(value: dict | None) -> dict:
         raise EmphasisError("INVALID_SETTINGS", "Settings must be an object.")
     # A workflow saved by 0.9.0 must remain loadable after the patch release.
     # Always snapshot the current code version, but accept the known v0.9 input.
-    for field, expected in (("schema_version", 1), ("engine", ENGINE), ("parser_version", 1)):
+    schema = value.get("schema_version", 1)
+    engine = value.get("engine", ENGINE)
+    engines = {1: (ENGINE,), 2: (ENGINE, NEGPIP), 3: (AUTO_ENGINE, AUTO_NEGPIP)}
+    if type(schema) is not int or schema not in engines or engine not in engines[schema]:
+        raise EmphasisError("INVALID_SETTINGS", "Unsupported schema or engine.")
+    for field, expected in (("parser_version", 1), ("engine_version", 1)):
         if field in value and (type(value[field]) is not type(expected) or value[field] != expected):
             raise EmphasisError("INVALID_SETTINGS", f"Unsupported {field}: {value[field]!r}.")
     if "version" in value and (type(value["version"]) is not str or value["version"] not in ("0.9.0", VERSION)):
@@ -32,8 +41,16 @@ def settings(value: dict | None) -> dict:
     enabled, strength = value.get("enabled", False), value.get("strength", 1.0)
     if type(enabled) is not bool or type(strength) not in (int, float) or not math.isfinite(strength) or not 0 <= strength <= 4:
         raise EmphasisError("INVALID_SETTINGS", "enabled must be boolean; strength must be finite and within 0..4.")
-    return {"schema_version": 1, "enabled": enabled, "strength": float(strength),
-            "engine": ENGINE, "parser_version": 1, "version": VERSION}
+    neg = value.get("negpip_strength", 1.0)
+    if type(neg) not in (int, float) or not math.isfinite(neg) or not 0 <= neg <= 1:
+        raise EmphasisError("INVALID_SETTINGS", "NegPiP strength must be finite and within 0..1.")
+    return {"schema_version": max(2, schema), "enabled": enabled, "strength": float(strength),
+            "engine": engine, "negpip_strength": float(neg), "engine_version": 1,
+            "parser_version": 1, "version": VERSION}
+
+
+def active_strength(config):
+    return config["negpip_strength"] if config["engine"] in (NEGPIP, AUTO_NEGPIP) else config["strength"]
 
 
 def canonical(value: dict) -> str:

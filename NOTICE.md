@@ -18,3 +18,14 @@ References used during design/interface review (not bundled dependencies):
   https://docs.comfy.org/custom-nodes/js/javascript_settings
 
 These references identify reviewed contracts, not a claim of end-to-end execution against those repositories. In particular the independent node's Qwen encoder patches and Linear/Log modes are NOT included. Model weights and upstream code/assets are not distributed here.
+
+## NegPiP and cross-model numerical references
+
+- pamparamm / ComfyUI-ppm, AGPL-3.0, pinned commit `926e8bb5f3c4b652e5b42a451d76cb3dc1d4df73`:
+  [MOSS](https://github.com/pamparamm/ComfyUI-ppm/blob/926e8bb5f3c4b652e5b42a451d76cb3dc1d4df73/src/negpip/moss_negpip.py),
+  [SDXL](https://github.com/pamparamm/ComfyUI-ppm/blob/926e8bb5f3c4b652e5b42a451d76cb3dc1d4df73/src/negpip/unet_negpip.py),
+  [Anima](https://github.com/pamparamm/ComfyUI-ppm/blob/926e8bb5f3c4b652e5b42a451d76cb3dc1d4df73/src/negpip/anima_negpip.py).
+- Original NegPiP lineage: [laksjdjf/cd-tuner_negpip-ComfyUI](https://github.com/laksjdjf/cd-tuner_negpip-ComfyUI/blob/938b838546cf774dc8841000996552cef52cccf3/negpip.py).
+- Native ComfyUI `sd1_clip`, `sdxl_clip`, `text_encoders/anima`, `model_base.Anima`, `ldm/anima/model`, `ldm/cosmos/predict2` and ModelPatcher contracts.
+
+PPM is a numerical/interface reference, not a bundled dependency. These adapters reuse ComfyUI's native encoders and implement their own token-coefficient/conditioning transport; they do not vendor PPM's encoder or wrapper implementations. Fixed upstream source used for differential tests remains outside this distribution under its upstream terms. Tests optionally load those external files via `--reference-dir`, without automatic downloads. Intermediate effect, workflow-scoped selection, original Negative preservation and legacy schema handling are extension-specific.

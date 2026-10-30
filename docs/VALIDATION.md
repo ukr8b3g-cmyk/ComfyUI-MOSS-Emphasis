@@ -1,4 +1,36 @@
-# Validation report — 0.9
+# Validation — current development branch (2026-10-31)
+
+CPU verification on Windows, installed ComfyUI **0.43.0**, commit `426f5eea52a7ece1dd599fff4cb6cd1f352ddd24`. No checkpoints were loaded or downloaded for these tests.
+
+| Gate | Result |
+|---|---|
+| Python unit/regression suite | 121 passed, including legacy MOSS and transactional schema-3 graphs |
+| Frontend/locale suite | 40 passed; workflow restoration, method changes, migration, queue/export and stale backend handling |
+| Real ComfyUI CPU contracts | 11 passed; native SDXL/Anima tokenizers and token-weight encoders, ModelPatcher clone/hooks, conditioning batching, V3 node registration, real small attention modules |
+| Pinned PPM SDXL comparison | 6 prompts, including empty, unit/zero/negative/large weights, nested syntax and multiple CLIP chunks; K/V and pooled agree at float64 tolerance 1e-12 |
+| Pinned PPM Anima comparison | 4 prompts × 2 preprocessing routes; context and Value-sign metadata agree exactly after matching dtype |
+| MOSS pinned PPM comparison | 48 cases; maximum absolute error 4.45e-16 |
+| Saved original MOSS engine | 48 cases bit-exact |
+
+The native contracts use actual installed ComfyUI modules with small deterministic encoder/adapter stand-ins instead of checkpoint weights. SDXL BasicTransformerBlock and Anima/Cosmos Attention execute on CPU. Tests cover original Negative numerics, pooled/mask/IDs preservation, different CLIP chunk lengths, reversed CFG row order, positive-only and negative-only calls, batch size 2, Anima length above 512, deferred and inference preprocessing, FP64/FP32/FP16/BF16 Value dtype, coefficient overflow, duplicate patch rejection and input/options ownership. Illustrious is covered through its native SDXL architecture contract, not checkpoint generation.
+
+Model-auto settings use schema 3 and a private V3-API runtime. Old schema 1/2 and runtime V1 remain supported. Tests assert that loading an old workflow does not upgrade its model scope; an explicit weighting-setting change does. The MOSS attention arithmetic is retained.
+
+### Reproduce
+
+```sh
+python -B -m unittest discover -s tests
+node --test tests/frontend.test.mjs tests/locales.test.mjs
+python -B tests/native_contract.py --comfy-root /path/to/ComfyUI
+```
+
+For independent PPM comparisons, optionally pass `--reference-dir /path/to/external/references` containing unmodified `src/negpip/unet_negpip.py` and `anima_negpip.py` from commit `926e8bb5f3c4b652e5b42a451d76cb3dc1d4df73`, named `ppm_unet_926e8bb5.py` / `ppm_anima_926e8bb5.py`. References are not bundled or downloaded by tests. Without them the two PPM comparison tests are explicitly skipped. The separate MOSS differential harness was run locally; the shipped MOSS regression tests also exercise its equations.
+
+### Unperformed gates
+
+New-adapter checkpoint loading, GPU image/quality comparison, real GPU backend speed/VRAM, installed browser Settings rendering and live workflow tab/PNG restoration. Unit/frontend doubles and real CPU module contracts do not establish these results. No GPU generation or service restart is performed by the tests. Existing releases/tags/Registry versions are unchanged.
+
+## Historical validation report — 0.9
 
 Executed in an isolated build container on 2026-10-24.
 

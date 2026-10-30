@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch as mock_patch
 try:
     import torch
+    import torch.distributed.tensor  # Load before sys.modules contract mocks restore imports.
 except ImportError:
     torch = None
 
