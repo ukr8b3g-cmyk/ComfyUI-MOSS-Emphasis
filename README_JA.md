@@ -1,6 +1,6 @@
 # ComfyUI-MOSS-Emphasis v0.11.0
 
-[English](README.md) · [方式の違い](#方式の違いを簡単に) · [検証結果](docs/VALIDATION.md) · [参照元](NOTICE.md)
+[English](README.md) · [方式の違い](#方式の違いを簡単に) · [GPU比較ガイド](#gpu比較ガイド) · [検証結果](docs/VALIDATION.md) · [参照元](NOTICE.md)
 
 **v0.11.0（Beta）の追加：** 設定に`NegPiPの実装方式 → Forge compatible`を追加しました。全体とUse NegPiPをONにして選択します。保存済みの既存方式は明示的に切り替えるまで維持します。V-Scalingは初期OFF、強度は初期1（0～2）。**OFF／強度0でも基本Forge NegPiPが有効**で、完全無効ではありません。1では画像queryのValueへ符号付き重みを適用し、文章queryは符号だけを読みます。旧通常強度・PPM効果は保持し、この方式では使いません。[リリースノート](docs/RELEASE_NOTES_0.11.0.md)。
 
@@ -78,6 +78,76 @@ Forgeでは、保存してある従来の通常強度やPPM効果が0でも、�
 **Negative欄も違います。** 従来の通常／PPM方式はNegativeの標準処理を維持します。Forge方式ではPositive・Negativeの両方を、それぞれの重みで独立処理します。ただしNegativeはCFGの負側のままなので、そこでマイナスを付けても、Positiveでの負重みと同じ意味にはなりません。「マイナス同士で必ず強調に戻る」とも限りません。
 
 比較するときは、プロンプト・seed・モデル・LoRA・サンプラー・steps・CFGを揃え、Forgeの**V OFF**と**V ON・強度1**だけを切り替えると違いを見やすくなります。好みの結果を選んでください。Forgeは現在、標準MOSS専用です。他モデルでは重み処理を自動バイパスし、従来の通常／PPMによるSDXL・Illustrious・Anima対応は維持します。GPUでの画質比較は未実施です。
+
+## GPU比較ガイド
+
+以下は比較用の開始条件で、最適値やGPU画質を確認した結果ではありません。全条件で**標準MOSSモデルと通常のCLIP Text Encode**を使います。Forge方式は他のモデル系統ではバイパスします。最初は**Negative欄を空**にし、方式によるNegative処理の違いが混ざらないようにします。
+
+### 固定する生成設定
+
+| 項目 | 比較の開始条件 |
+|---|---|
+| Steps | **8** |
+| CFG | **3** |
+| Sampler | **dpmpp_sde** |
+| Scheduler | 導入済みなら**MOSS Shift Scheduler**。未導入なら現在のスケジューラーを全条件で固定 |
+| Seed | **42**などに固定。生成後の自動変更を無効にする |
+| Denoise | **1.0** |
+| モデル／CLIP／LoRA | 同じファイルとLoRA強度を使用。モデル側のShiftも現在の値を維持 |
+| 解像度・その他の設定 | 全条件で同じ値にする |
+
+上記スケジューラーは別の[MOSS Shift Scheduler拡張](https://github.com/ukr8b3g-cmyk/ComfyUI-MOSS-Shift-Scheduler)の機能で、MOSS Emphasisの必須条件ではありません。CFG 3とモデル側のShiftは別の設定です。
+
+### 比較する4条件
+
+**Settings → MOSS Emphasis**を開き、A～Dでは**プロンプトの重み付けを有効化＝ON**にします。方式は切り替えであり、重ね掛けではありません。
+
+| 条件 | Use NegPiP | 実装方式 | 使用する強度／V-Scaling |
+|---|---|---|---|
+| A：従来の通常強調 | OFF | 使用しない | Strength **1** |
+| B：従来のNegPiP | ON | PPM reference | NegPiP effect **1** |
+| C：基本Forge NegPiP | ON | Forge compatible | V-Scaling **OFF** |
+| D：Forge＋V-Scaling | ON | Forge compatible | V-Scaling **ON・強度1** |
+
+C／Dでは従来のStrengthとPPM効果は使いません。必要なら全体OFFの画像も追加し、本拡張をバイパスした基準にできます。全体OFFはCとは異なります。
+
+### 正の強調の例
+
+A～Dで同じPositiveを使い、Negativeは空欄にします。
+
+```text
+Anime illustration of one adult woman, waist-up portrait, facing the viewer.
+She has short black hair and wears a (red jacket:1.5) over a white shirt.
+Plain light gray background, soft lighting, clean line art.
+```
+
+ジャケットが指定の色になるか、赤色が髪・肌・背景へ広がらないか、顔・服の形・構図・細い線が不必要に変わらないかを見ます。必要なら`1.5`だけを`1.0`、`2.0`へ変えて比較します。狙った属性が変わるのか、画面全体が変わるのかが判断点です。数字に比例した画像効果を保証するものではありません。
+
+### 負の重みの例
+
+Negativeは空欄のまま、次をPositiveに入れます。
+
+```text
+Anime illustration of one adult woman, waist-up portrait, facing the viewer.
+She has short black hair, (glasses:-1), and wears a blue jacket over a white shirt.
+Plain light gray background, soft lighting, clean line art.
+```
+
+まず比較対象の各方式で`(glasses:1)`も生成し、そのseedで眼鏡が出るか確認します。その後、重みだけを`-1`に変え、**B／C／D**で眼鏡が減るか、目や顔まで崩れないかを比べます。正の基準でも眼鏡が出なければ、両方の生成で同じ別seedを使います。Aで負数を書いてもNegPiPへ自動切り替えはされません。負数の絶対値を大きくしても、抑制が強まることや語句が画像から消えることは保証されません。
+
+### V-ScalingのON・OFFで見るポイント
+
+ほかの条件を揃え、**CとD**を比較します。
+
+| Forgeの設定 | 計算の違い | 画像で見る点 |
+|---|---|---|
+| V OFF | 数字の大きさを文章の情報へ反映。基本NegPiPは有効 | 指定への追従と、顔・構図・無関係な属性への波及 |
+| V ON・強度1 | 画像側のValueへ符号付きの重みを適用。文章側のValueは符号だけ | 狙った属性の反映、色漏れ、形の安定性、不要な崩れ |
+| V ON・強度0 | V OFFと同じ基本Forge NegPiP。完全無効ではない | 必要に応じて、同じ生成条件でCとの整合性を確認 |
+
+ONなら細部が増える、OFFなら自然になる、と決まっているわけではありません。ON・1が強すぎると感じたら、次に**0.5**を比較します。最初は1つの固定seedで試し、好みの設定を別のseedでも2～3回比べて安定性を判断してください。
+
+Negative欄の試験は最後に分けます。まず普通に`glasses`と書き、Negative空欄の結果と比較してください。従来の通常／PPM方式はNegativeの標準処理を維持し、Forge方式は両欄を処理します。Negative欄の数値付き負重みは別試験とし、そこでの`(glasses:-1)`はPositiveの同じ指定と同義ではなく、単純な二重否定も保証しません。この例によるGPU生成や画質の優劣は未確認です。
 
 ## モデル別の処理
 

@@ -1,6 +1,6 @@
 # ComfyUI-MOSS-Emphasis v0.11.0
 
-[日本語](README_JA.md) · [How the methods differ](#how-the-methods-differ) · [Validation](docs/VALIDATION.md) · [Attribution](NOTICE.md)
+[日本語](README_JA.md) · [How the methods differ](#how-the-methods-differ) · [GPU comparison guide](#gpu-comparison-guide) · [Validation](docs/VALIDATION.md) · [Attribution](NOTICE.md)
 
 **New in v0.11.0 (Beta):** Settings now offer `NegPiP implementation → Forge compatible` for native MOSS. Enable prompt weighting and Use NegPiP, then select it; saved workflows keep their existing method unless explicitly switched. `Use V-Scaling` defaults OFF; its strength defaults to 1 (0..2). OFF or strength 0 is basic Forge NegPiP, not bypass. At 1 the image-query Values receive signed prompt magnitudes; text queries read sign-only Values. Old Strength / PPM effect values are retained and ignored in this mode. [Release notes](docs/RELEASE_NOTES_0.11.0.md).
 
@@ -78,6 +78,76 @@ The old normal Strength and PPM effect do not control Forge mode, even if their 
 **Negative is another difference:** existing normal/PPM modes retain its native processing. Forge applies its selected weighting to both Positive and Negative independently. Negative is still the negative CFG branch; putting a negative weight there is not equivalent to putting it in Positive, and is not a simple guaranteed “double negative.”
 
 To compare, keep the prompt, seed, model, LoRA, sampler, steps and CFG fixed; change only Forge V-Scaling OFF versus ON at strength 1. Choose the result you prefer. Forge is currently native MOSS only; other models bypass its weighting. Existing normal/PPM support for SDXL/Illustrious and Anima is unchanged. GPU image-quality comparisons remain unperformed.
+
+## GPU comparison guide
+
+These are suggested comparison conditions, not verified optimal settings or GPU quality results. Use a **native MOSS model and ordinary CLIP Text Encode** for every condition. Forge mode bypasses other model families. Start with an **empty Negative field** to isolate Positive weighting from the different Negative handling.
+
+### Fixed generation settings
+
+| Setting | Suggested starting condition |
+|---|---|
+| Steps | **8** |
+| CFG | **3** |
+| Sampler | **dpmpp_sde** |
+| Scheduler | **MOSS Shift Scheduler**, if installed; otherwise keep your current scheduler fixed |
+| Seed | **42**, or another fixed seed; disable automatic seed changes |
+| Denoise | **1.0** |
+| Model / CLIP / LoRA | Same files and LoRA strengths; leave model-side Shift unchanged |
+| Resolution and other options | Same values throughout |
+
+The scheduler above belongs to the separate [MOSS Shift Scheduler extension](https://github.com/ukr8b3g-cmyk/ComfyUI-MOSS-Shift-Scheduler); it is not required by MOSS Emphasis. CFG 3 and model-side Shift are separate settings.
+
+### Four comparison conditions
+
+Open **Settings → MOSS Emphasis** and keep **Enable prompt weighting ON** for A–D. These are alternative methods, not stacked effects.
+
+| Condition | Use NegPiP | Implementation | Active strength / V-Scaling |
+|---|---|---|---|
+| A: Existing normal emphasis | OFF | Not used | Strength **1** |
+| B: Existing NegPiP | ON | PPM reference | NegPiP effect **1** |
+| C: Basic Forge NegPiP | ON | Forge compatible | V-Scaling **OFF** |
+| D: Forge with V-Scaling | ON | Forge compatible | V-Scaling **ON**, strength **1** |
+
+Normal Strength and PPM effect are ignored in C/D. For an optional extension-bypass baseline, turn the master switch OFF; this is different from C.
+
+### Positive-weight example
+
+Use this identical Positive prompt for A–D, leaving Negative empty:
+
+```text
+Anime illustration of one adult woman, waist-up portrait, facing the viewer.
+She has short black hair and wears a (red jacket:1.5) over a white shirt.
+Plain light gray background, soft lighting, clean line art.
+```
+
+Check whether the jacket follows the requested color, whether red spreads to the hair/skin/background, and whether the face, clothing shape, composition or fine lines change undesirably. If useful, repeat with only `1.5` replaced by `1.0` or `2.0`. Look for changes to the intended attribute versus changes to the whole image; the number does not guarantee a proportional visual effect.
+
+### Negative-weight example
+
+Keep Negative empty and use:
+
+```text
+Anime illustration of one adult woman, waist-up portrait, facing the viewer.
+She has short black hair, (glasses:-1), and wears a blue jacket over a white shirt.
+Plain light gray background, soft lighting, clean line art.
+```
+
+First try `(glasses:1)` with each tested method to check whether glasses appear at that seed. Then change only the weight to `-1` and compare **B/C/D**: do glasses decrease, and do the eyes and face remain intact? If glasses are absent in the positive-weight baseline, use another seed for both runs. A negative number in A does not automatically enable NegPiP. Greater negative magnitude does not guarantee stronger suppression or concept removal.
+
+### What to look for with V-Scaling
+
+Compare **C versus D** with everything else fixed:
+
+| Forge setting | Calculation | What to inspect in the image |
+|---|---|---|
+| V OFF | Magnitudes affect text encoding; basic NegPiP remains active | Prompt adherence and changes spreading to the face, composition or unrelated attributes |
+| V ON, strength 1 | Apply signed magnitudes to image-side Values; text-side Values retain sign only | Intended attribute strength, color spill, shape stability and unwanted artifacts |
+| V ON, strength 0 | Same basic Forge NegPiP as V OFF; not complete bypass | Optional consistency check against C, under the same generation conditions |
+
+ON does not inherently mean more detail, and OFF does not inherently mean more natural results. If ON at 1 feels too strong, compare **0.5** next. Start with one fixed seed, then repeat the preferred settings with two or three more seeds before judging consistency.
+
+Test the Negative field separately afterward: first add ordinary `glasses` there and compare with the empty-Negative result. Existing normal/PPM modes keep native Negative processing; Forge processes both fields. Treat negative numeric weights in Negative as a separate experiment: `(glasses:-1)` there is not equivalent to the same expression in Positive and does not guarantee a simple double-negative effect. No GPU generation or image-quality outcome is claimed by these examples.
 
 ## Model support
 
