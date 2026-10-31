@@ -1,12 +1,18 @@
-# ComfyUI-MOSS-Emphasis v0.10.1
+# ComfyUI-MOSS-Emphasis v0.11.0
 
-[日本語](README_JA.md) · [Validation](docs/VALIDATION.md) · [Attribution](NOTICE.md)
+[日本語](README_JA.md) · [How the methods differ](#how-the-methods-differ) · [Validation](docs/VALIDATION.md) · [Attribution](NOTICE.md)
+
+**New in v0.11.0 (Beta):** Settings now offer `NegPiP implementation → Forge compatible` for native MOSS. Enable prompt weighting and Use NegPiP, then select it; saved workflows keep their existing method unless explicitly switched. `Use V-Scaling` defaults OFF; its strength defaults to 1 (0..2). OFF or strength 0 is basic Forge NegPiP, not bypass. At 1 the image-query Values receive signed prompt magnitudes; text queries read sign-only Values. Old Strength / PPM effect values are retained and ignored in this mode. [Release notes](docs/RELEASE_NOTES_0.11.0.md).
+
+Forge mode processes **both Positive and Negative** independently, using separate ordinary CLIP Text Encode inputs. Negative remains the negative CFG branch; `(word:-1)` there is not equivalent to using it in Positive. Native CFG branch skipping is unchanged. Non-MOSS models automatically bypass Forge weighting with original text and retain these settings; returning to MOSS resumes them. Existing normal/PPM model support and Negative behavior are unchanged. Layout JSON, custom chat templates, image references and processed/region/scheduled conditioning are outside the new mode's scope. Structural graph errors are still rejected before execution.
+
+The new Forge-derived module is AGPLv3, combined with the existing GPLv3 code under section 13; see [NOTICE](NOTICE.md). The Settings status offers the **corresponding source of the actual installed version** at `/moss_emphasis/source`. Restart ComfyUI and reload the browser after installation; CPU tests do not establish GPU quality, Kitchen performance or live UI behavior.
 
 Prompt weighting and **NegPiP** from **Settings → MOSS Emphasis**, using ordinary **CLIP Text Encode**. No prompt-weight node needs to be placed on the canvas.
 
-**v0.10.1 includes NegPiP** for three model families: **native MOSS-Image, SDXL / Illustrious, and native Anima**. In auto model mode, **every other architecture automatically bypasses this extension**, including Qwen-Image, FLUX, SD1.5, SD3, Krea2 and SDXL Refiner; ordinary generation continues. These are CPU-tested experimental features. GPU quality, speed and VRAM for the new adapters have not been tested. [Release notes](docs/RELEASE_NOTES_0.10.1.md).
+**Existing normal/PPM modes support three model families: native MOSS-Image, SDXL / Illustrious, and native Anima.** In auto model mode, **every other architecture automatically bypasses this extension**, including Qwen-Image, FLUX, SD1.5, SD3, Krea2 and SDXL Refiner; ordinary generation continues. Forge mode supports native MOSS only. These are CPU-tested experimental features; GPU quality, speed and VRAM remain unverified.
 
-**Fixed in 0.10.1:** extreme finite weights now stop with `INVALID_WEIGHT` if MOSS Value multiplication, mask composition or Anima post-adapter multiplication overflows. No fixed weight cap or clamping was added; finite arithmetic is unchanged. An older running backend rejecting schema 2/3 now gives a localized restart instruction without queueing or changing saved settings. Settings from 0.9.0, 0.9.1 and 0.10.0 remain loadable with their method, strengths and model scope preserved.
+**Compatibility:** the numerical protections introduced in 0.10.1 remain in place. Old backends rejecting supported settings, including Forge schema 4 or version 0.11.0, give a localized restart instruction without queueing or changing saved settings. Settings from 0.9.0, 0.9.1, 0.10.0 and 0.10.1 remain loadable with their method, strengths and model scope preserved, including the prior local Forge settings.
 
 ## Install / update
 
@@ -26,19 +32,56 @@ Keep your normal model, positive and negative wiring. Open **Settings → MOSS E
 |---|---|
 | Enable prompt weighting | Master switch, saved per workflow. New workflows start OFF. |
 | Strength | Normal emphasis only, 0–4; start at 1. |
-| Use NegPiP | OFF = normal emphasis; ON = model-specific NegPiP. The methods are exclusive. |
-| NegPiP effect | NegPiP only, 0–1; start at 1. |
-| Current method | Shows the method and auto model / legacy MOSS mode. |
+| Use NegPiP | OFF = normal emphasis; ON = the selected NegPiP implementation. The methods are exclusive. |
+| NegPiP implementation | `PPM reference` keeps the existing method; `Forge compatible` selects the new MOSS-only method. Default: PPM. |
+| NegPiP effect | PPM only, 0–1; start at 1. Ignored in Forge mode. |
+| Use V-Scaling | Forge only. Default OFF; basic Forge NegPiP remains active when OFF. |
+| V-Scaling Strength | Forge with V-Scaling ON, 0–2; default 1. Zero means basic Forge NegPiP, not bypass. |
+| Current method | Shows the selected method and effective strength. Forge status notes automatic bypass outside MOSS. |
 
 In auto mode, actual **MODEL and CLIP types** select the adapter; checkpoint filenames do not. There is no model selection menu. Use NegPiP does not activate anything while the master switch is OFF. The inactive strength is retained but ignored.
 
-The selected strength/effect at **0**, or master OFF, bypasses the extension completely. **Native SDXL/Anima weighting still applies to the original text.** Extension OFF does not disable a model's built-in weighting.
+**Zero has different meanings for different controls**, as explained below. Master OFF bypasses this extension in every mode. **Native SDXL/Anima weighting still applies to the original text.** Extension OFF does not disable a model's built-in weighting.
 
 ![Earlier MOSS Emphasis Settings UI](docs/images/moss-emphasis-settings.webp)
 
-*This image predates NegPiP controls. Current order: Enable → Strength → Use NegPiP → NegPiP effect → Current method. ComfyUI's Japanese locale translates labels and hover help; persisted IDs stay unchanged.*
+*This image predates NegPiP controls. Current order: Enable → Strength → Use NegPiP → implementation → PPM effect → Use V-Scaling → V-Scaling Strength → Current method. Inactive controls retain their values but are disabled. ComfyUI's Japanese locale translates labels and hover help; persisted IDs stay unchanged.*
+
+## How the methods differ
+
+All methods let you ask for more or less influence from a phrase. **They adjust that influence at different points**, so the same number can produce a different image. The following is a simple analogy for MOSS, not a promise about the visual result:
+
+| Method | An easy way to think about it |
+|---|---|
+| Existing normal emphasis | “Pay more attention to this phrase.” It adjusts attention and how much a token contributes. |
+| Existing PPM NegPiP | At its reference effect of 1, adjust attention using the weight's magnitude; a negative weight reverses the contribution read by the image side. |
+| **Forge, V-Scaling OFF** | Adjust the strength of the text information given to the image model. Negative weights still reverse contributions. |
+| **Forge, V-Scaling ON** | Shift the magnitude adjustment towards the image model's drawing process: scale the token contributions read by the image side. The text side retains sign-only contributions. |
+
+For example, `(red hair:1.5)` asks for more influence from “red hair.” With Forge V-Scaling OFF, its text encoding is adjusted. With V-Scaling ON at strength **1**, that magnitude adjustment is applied to the image-side contributions instead. These are alternative calculations, not extra effects stacked on top of PPM. **1.5 does not guarantee 1.5 times as much red hair**, and no method is established as universally better.
+
+There is also a syntax difference: Forge treats ordinary `(red hair)` as emphasis, while the existing MOSS parser leaves parentheses without an explicit numeric weight as literal text. Forge tokenizes weighted segments separately. Do not expect identical results from the same prompt across methods.
+
+### V-Scaling ON, OFF and strength 0
+
+| Control / state | What it means |
+|---|---|
+| **Master switch OFF** | This extension is bypassed, regardless of the selected method or saved strengths. |
+| Normal emphasis: **Strength 0** | The existing normal method is bypassed. |
+| PPM NegPiP: **NegPiP effect 0** | The existing PPM method is bypassed. |
+| Forge: **Use V-Scaling OFF** | **Basic Forge NegPiP remains active.** Magnitudes affect text encoding; negative weights still reverse contributions. The saved V-Scaling strength is ignored. |
+| Forge: **V-Scaling ON, strength 0** | The same basic Forge NegPiP as OFF. **Zero does not disable Forge NegPiP.** |
+| Forge: **V-Scaling ON, strength 1** | Apply signed weight magnitudes to the image-side contributions; keep sign-only contributions on the text side. This is a starting point for comparison, not a proven best setting. |
+
+The old normal Strength and PPM effect do not control Forge mode, even if their saved values are 0. A prompt weight such as `(red hair:0)` is a separate setting: it changes that phrase's treatment, does not switch off the extension, and does not guarantee concept deletion.
+
+**Negative is another difference:** existing normal/PPM modes retain its native processing. Forge applies its selected weighting to both Positive and Negative independently. Negative is still the negative CFG branch; putting a negative weight there is not equivalent to putting it in Positive, and is not a simple guaranteed “double negative.”
+
+To compare, keep the prompt, seed, model, LoRA, sampler, steps and CFG fixed; change only Forge V-Scaling OFF versus ON at strength 1. Choose the result you prefer. Forge is currently native MOSS only; other models bypass its weighting. Existing normal/PPM support for SDXL/Illustrious and Anima is unchanged. GPU image-quality comparisons remain unperformed.
 
 ## Model support
+
+This table describes the existing normal/PPM modes. Forge is currently native MOSS only and automatically bypasses every other model.
 
 | Model | Normal emphasis | NegPiP at effect 1 | Status |
 |---|---|---|---|
@@ -53,7 +96,7 @@ Qwen-Image here means the image-generation architecture. MOSS and Anima may use 
 
 Illustrious uses the native SDXL architecture route, not a filename allowlist. No Illustrious/Anima checkpoint was loaded for these tests. Anima uses existing T5 **tokenizer metadata**; this extension does not load a T5 encoder model. MODEL and CLIP must be a matching native pair.
 
-**Positive weighting is the scope.** Negative retains its native numerical meaning, including native weights it already contains. SDXL NegPiP internally transports identical K/V copies of Negative to compensate for the attention split; it does not reinterpret Negative with NegPiP.
+**Existing normal/PPM modes weight Positive.** Negative retains its native numerical meaning, including native weights it already contains. SDXL PPM NegPiP internally transports identical K/V copies of Negative to compensate for the attention split; it does not reinterpret Negative with NegPiP. Forge's processing of both fields is explained above.
 
 ## Prompt weights and zero
 
@@ -63,16 +106,16 @@ Illustrious uses the native SDXL architecture route, not a filename allowlist. N
 
 A negative number is interpreted within the selected method; it does not automatically switch to NegPiP. Prompt weights have no fixed min/max. Non-finite values, overflowing coefficients and unrepresentable conditioning are rejected. The actual MOSS Value product, combined attention mask and Anima post-adapter product are also checked where weighting can overflow: an invalid result raises `INVALID_WEIGHT`, without clamping the weight or changing methods. Larger magnitudes do not guarantee stronger visual suppression.
 
-| Model, strength/effect = 1 | Weight 0 | Weight 1 |
+| Existing normal/PPM modes, strength/effect = 1 | Weight 0 | Weight 1 |
 |---|---|---|
 | MOSS normal | Value multiplier 0; Key remains | Ordinary weight |
-| MOSS NegPiP | Absolute weight floored to 1e-4 for bias; positive Value sign | Relative weight 1; normalized with other tokens |
+| MOSS PPM NegPiP | Absolute weight floored to 1e-4 for bias; positive Value sign | Relative weight 1; normalized with other tokens |
 | SDXL normal / NegPiP | Empty-prompt-reference embedding; positive NegPiP sign | Native embedding |
 | Anima normal / NegPiP | Corresponding adapted context multiplied by 0; positive NegPiP sign | Native weight |
 
 None guarantees concept deletion. `(realistic:1)` is ordinary weighting, not a special realism boost.
 
-**Syntax differs by model:** MOSS preserves explicit decimal syntax, literal unweighted parentheses, nested products, 128-group/16-level limits and character-position mapping. Its Layout JSON protection applies only to `summary.caption` / `items[].caption`. SDXL/Anima use their **native tokenizer's** parentheses, escaping, nesting and token weights. MOSS JSON protection does not apply to them; this is not an A1111/Compel normalization mode.
+**For existing normal/PPM modes, syntax differs by model:** MOSS preserves explicit decimal syntax, literal unweighted parentheses, nested products, 128-group/16-level limits and character-position mapping. Its Layout JSON protection applies only to `summary.caption` / `items[].caption`. SDXL/Anima use their **native tokenizer's** parentheses, escaping, nesting and token weights. MOSS JSON protection does not apply to them; this is not an A1111/Compel normalization mode. Forge uses its separate Original-style syntax and does not yet support Layout JSON.
 
 For SDXL/Anima normal emphasis, Strength `s` maps token weight `w` to `1+s*(w-1)`. NegPiP effect `t` uses `1+t*(abs(w)-1)` and negative Value multiplier `1-2*t`. Effect **1** is the pinned PPM equation comparison point; intermediate effects are extension-specific. At **0.5**, negative-token Value becomes zero but the token remains. MOSS retains its log-bias interpolation.
 
@@ -97,7 +140,7 @@ POST /moss_emphasis/prepare
 {"schema_version":1,"prompt":{},"settings":{"schema_version":3,"enabled":true,"engine":"negpip_auto_v1","strength":1,"negpip_strength":1}}
 ```
 
-Replace `prompt` with the actual graph, then send the returned `prompt` to `/prompt`. Preparation failures never queue an unweighted fallback. The prepare envelope stays version 1; workflow settings use schema 3. Prepared graphs require this extension. Ordinary ComfyUI API export may omit the transformation.
+Replace `prompt` with the actual graph, then send the returned `prompt` to `/prompt`. Preparation failures never queue an unweighted fallback. The prepare envelope stays version 1; existing auto-mode settings use schema 3, and Forge uses schema 4. Prepared graphs require this extension. Ordinary ComfyUI API export may omit the transformation.
 
 ```sh
 python -m unittest discover -s tests -v
@@ -105,4 +148,4 @@ node --test tests/frontend.test.mjs tests/locales.test.mjs
 python -B tests/native_contract.py --comfy-root /path/to/ComfyUI
 ```
 
-[Validation](docs/VALIDATION.md) separates unit tests, real CPU module contracts and unperformed GPU/UI checks. GPL-3.0-only; [NOTICE](NOTICE.md) lists PPM/KJ/native references. No promise of identical generated images.
+[Validation](docs/VALIDATION.md) separates unit tests, real CPU module contracts and unperformed GPU/UI checks. Existing files are GPL-3.0-only; the new Forge-derived module is AGPL-3.0-only. [NOTICE](NOTICE.md) lists the applicable licenses and references. No promise of identical generated images.

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { Controller, normalize, hideRuntime, RUNTIME, RUNTIME_V2, IDS } from "../web/controller.js";
+import { VERSION, Controller, normalize, executionSettings, shouldApply, hideRuntime, RUNTIME, RUNTIME_V2, RUNTIME_V3, FORGE, IDS } from "../web/controller.js";
 
 function fixture(raw = {}) {
   const graph = { extra: { moss_emphasis: normalize(raw) }, beforeChange(){}, afterChange(){}, change(){} };
@@ -68,19 +68,19 @@ test("in-flight workflow metadata is frozen at submission",async()=>{
 
 test("saved 0.9.0 workflow settings migrate without dropping enabled state", () => {
  const old = normalize({ version:"0.9.0", enabled:true, strength:1.3 });
- assert.equal(old.version,"0.10.1");assert.equal(old.enabled,true);assert.equal(old.strength,1.3);
+ assert.equal(old.version,VERSION);assert.equal(old.enabled,true);assert.equal(old.strength,1.3);
 });
 
 test("version upgrade preserves old NegPiP mode and auto scope",()=>{
- for(const version of ["0.9.1","0.10.0"]) for(const [schema,engine] of [[2,"kj_dit_v1"],[2,"ppm_negpip_moss_v1"],[3,"native_auto_v1"],[3,"negpip_auto_v1"]]){
+ for(const version of ["0.9.1","0.10.0","0.10.1"]) for(const [schema,engine] of [[2,"kj_dit_v1"],[2,"ppm_negpip_moss_v1"],[3,"native_auto_v1"],[3,"negpip_auto_v1"]]){
    const old={version,schema_version:schema,engine,enabled:true,strength:.7,negpip_strength:.4};
-   const value=normalize(old);assert.equal(value.version,"0.10.1");
+   const value=normalize(old);assert.equal(value.version,VERSION);
    for(const key of ["schema_version","engine","enabled","strength","negpip_strength"])assert.equal(value[key],old[key]);
  }
 });
 test("older running backend version rejection gives restart instructions",async()=>{
  const {api,app,calls}=fixture({schema_version:3,engine:"negpip_auto_v1",enabled:true});
- api.fetchApi=async()=>({ok:false,json:async()=>({error:{code:"INVALID_SETTINGS",message:"Unsupported version: '0.10.1'."}})});
+ api.fetchApi=async()=>({ok:false,json:async()=>({error:{code:"INVALID_SETTINGS",message:`Unsupported version: '${VERSION}'.`}})});
  await assert.rejects(api.queuePrompt(0,await app.graphToPrompt()),/BACKEND_RESTART_REQUIRED/);assert.equal(calls.length,0);
 });
 
@@ -201,7 +201,7 @@ test("native Settings sort keeps each enable control before its strength",()=>{
  new Function('app','api','Controller','IDS','hideRuntime','normalize',source)(app,{},Controller,IDS,hideRuntime,normalize);
  // Installed SettingDialog sorts descending by sortOrder after flattenTree.
  const general=extension.settings.filter(s=>s.category[1]==='General').reverse().sort((a,b)=>(b.sortOrder??0)-(a.sortOrder??0));
- assert.deepEqual(general.map(s=>s.id),[IDS.enabled,IDS.strength,IDS.negpip,IDS.negpip_strength,IDS.status]);
+ assert.deepEqual(general.map(s=>s.id),[IDS.enabled,IDS.strength,IDS.negpip,IDS.negpip_implementation,IDS.negpip_strength,IDS.v_scaling_enabled,IDS.v_scaling_strength,IDS.status]);
  assert.equal(extension.settings.find(s=>s.id===IDS.enabled).defaultValue,false);
  assert.equal(extension.settings.find(s=>s.id===IDS.negpip).defaultValue,false);
 });
@@ -223,4 +223,77 @@ test("unrelated invalid settings are not classified as backend restart",async()=
   await assert.rejects(api.queuePrompt(0,await app.graphToPrompt()),error=>error.message===`[${code}] ${message}`);
   assert.equal(calls.length,0);
  }
+});
+
+const forge = extra => ({schema_version:4,engine:FORGE,enabled:true,...extra});
+
+test("local 0.10.1 Forge workflow preserves mode, scale and inactive strengths",()=>{
+ const old=forge({version:'0.10.1',strength:0,negpip_strength:.3,v_scaling_enabled:true,v_scaling_strength:1.5});
+ const value=normalize(old);assert.equal(value.version,VERSION);
+ for(const key of ['engine','schema_version','enabled','strength','negpip_strength','v_scaling_enabled','v_scaling_strength']) assert.equal(value[key],old[key]);
+});
+
+test("Forge old strengths zero and V OFF/zero still prepare basic NegPiP",async()=>{
+ for(const config of [forge({strength:0,negpip_strength:0}),forge({v_scaling_enabled:true,v_scaling_strength:0})]) {
+  const {api,app,calls}=fixture(config);
+  await api.queuePrompt(0,await app.graphToPrompt());assert.ok(calls[0][1].output.internal);
+  assert.equal(shouldApply(normalize(config)),true);
+ }
+});
+test("Forge execution omits inactive preferences and normalizes OFF and ON+0",()=>{
+ const a=executionSettings(forge({strength:0,negpip_strength:0,v_scaling_strength:2}));
+ const b=executionSettings(forge({strength:4,negpip_strength:1,v_scaling_enabled:true,v_scaling_strength:0}));
+ assert.deepEqual(a,b);assert.equal(a.v_scaling_strength,0);assert.equal(a.strength,1);
+ assert.equal(Object.hasOwn(a,'diagnostic'),false);assert.equal(Object.hasOwn(a,'negpip_implementation'),false);
+ const old=executionSettings({schema_version:2,engine:'ppm_negpip_moss_v1',enabled:true,v_scaling_enabled:true,v_scaling_strength:2});
+ assert.equal(Object.hasOwn(old,'v_scaling_strength'),false);assert.equal(old.schema_version,2);
+});
+test("Forge mode and all saved strengths survive switch, restore and API export",async()=>{
+ const {c,app,store}=fixture({schema_version:2,engine:'ppm_negpip_moss_v1',enabled:true,strength:.7,negpip_strength:.3});
+ await c.restore();c.change('negpip_implementation','Forge compatible');c.change('v_scaling_enabled',true);c.change('v_scaling_strength',1.5);
+ assert.equal(app.rootGraph.extra.moss_emphasis.engine,FORGE);
+ c.change('negpip',false);assert.equal(app.rootGraph.extra.moss_emphasis.engine,'native_auto_v1');
+ c.change('negpip',true);assert.equal(app.rootGraph.extra.moss_emphasis.engine,FORGE);
+ c.change('negpip_implementation','PPM reference');assert.equal(app.rootGraph.extra.moss_emphasis.schema_version,3);
+ c.change('negpip_implementation','Forge compatible');await c.restore();
+ assert.equal(store.values[IDS.v_scaling_strength],1.5);assert.equal(store.values[IDS.negpip_implementation],'Forge compatible');
+ const result=await c.exportApi();const config=result.extra_data.extra_pnginfo.workflow.extra.moss_emphasis;
+ assert.equal(config.strength,.7);assert.equal(config.negpip_strength,.3);assert.equal(config.v_scaling_enabled,true);
+ assert.equal(config.v_scaling_strength,1.5);assert.equal(config.engine,FORGE);
+});
+test("inactive Forge preferences do not migrate a legacy ordinary engine",async()=>{
+ const {c,app}=fixture({schema_version:2,engine:'kj_dit_v1',enabled:true});await c.restore();
+ const before=executionSettings(app.rootGraph.extra.moss_emphasis);
+ c.change('negpip_implementation','Forge compatible');c.change('v_scaling_strength',2);
+ assert.deepEqual(executionSettings(app.rootGraph.extra.moss_emphasis),before);
+ c.change('negpip',true);assert.equal(app.rootGraph.extra.moss_emphasis.engine,FORGE);
+});
+test("schema4 old backend requires localized restart without downgrade",async()=>{
+ for(const locale of ['ja','en']) {
+  const {api,c,app,store,calls}=fixture(forge({}));store.get=()=>locale;await c.restore();
+  const before=structuredClone(app.rootGraph.extra);
+  api.fetchApi=async()=>({ok:false,json:async()=>({error:{code:'INVALID_SETTINGS',message:'Unsupported schema or engine.'}})});
+  await assert.rejects(c.exportApi(),locale==='ja'?/ComfyUI本体を再起動/:/Restart ComfyUI itself/);
+  assert.equal(calls.length,0);assert.deepEqual(app.rootGraph.extra,before);
+ }
+});
+test("backend cannot change the Forge effective scale",async()=>{
+ const {api,app,calls}=fixture(forge({v_scaling_enabled:true,v_scaling_strength:.5}));
+ api.fetchApi=async(_url,options)=>{const body=JSON.parse(options.body);return {ok:true,json:async()=>({prompt:body.prompt,targets:[],settings:{...body.settings,v_scaling_strength:1}})};};
+ await assert.rejects(api.queuePrompt(0,await app.graphToPrompt()),/mismatch/);assert.equal(calls.length,0);
+});
+test("Forge submission freezes effective scale and editor preferences across tabs",async()=>{
+ const {api,app,calls}=fixture(forge({v_scaling_enabled:true,v_scaling_strength:.5,strength:.8}));
+ const data=await app.graphToPrompt();let release;
+ api.fetchApi=async(_url,options)=>{const body=JSON.parse(options.body);await new Promise(r=>release=r);return {ok:true,json:async()=>({prompt:body.prompt,settings:body.settings,targets:[]})};};
+ const pending=api.queuePrompt(0,data);data.workflow.extra.moss_emphasis.v_scaling_strength=2;
+ app.rootGraph={extra:{moss_emphasis:normalize()}};release();await pending;
+ assert.equal(calls[0][1].workflow.extra.moss_emphasis.v_scaling_strength,.5);
+ assert.equal(calls[0][1].workflow.extra.moss_emphasis.strength,.8);
+});
+test("new preferences validate types and hide the third runtime",()=>{
+ for(const extra of [{v_scaling_enabled:1},{v_scaling_strength:NaN},{v_scaling_strength:2.1},{negpip_implementation:null},{negpip_implementation:'other'}])
+  assert.throws(()=>normalize(forge(extra)));
+ const dict={[RUNTIME_V3]:{},Other:{}};hideRuntime(dict);assert.deepEqual(Object.keys(dict),['Other']);
+ const list=[{name:RUNTIME_V3},{name:'Other'}];hideRuntime(list);assert.equal(list.length,1);
 });

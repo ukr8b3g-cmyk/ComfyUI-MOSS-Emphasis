@@ -165,9 +165,11 @@ def is_native_moss(model, strict=True):
 
 
 def patch(model, conditioning, weights, strength, engine=ENGINE):
-    from comfy.ldm.modules import attention as attn
-    from comfy.patcher_extension import WrappersMP
-    diffusion = model.get_model_object("diffusion_model")
+    return patch_joint(model, lambda: ForwardState(conditioning[0][0][0], weights, strength, engine),
+                       engine=engine, weights=weights)
+
+
+def check_joint_patches(model):
     options = model.model_options.get("transformer_options", {})
     if options.get(KEY) or any(k in str(options.get("wrappers", {})) for k in ("MossImagePromptWeight", "moss_prompt_weight", KEY)):
         raise EmphasisError("DUPLICATE_WEIGHT_ENGINE", "A prompt-weight patch is already active.")
@@ -186,10 +188,18 @@ def patch(model, conditioning, weights, strength, engine=ENGINE):
             funcs = [funcs]
         if any(not is_official_slg_callback(fn, key) for fn in funcs):
             raise EmphasisError("UNSUPPORTED_MODEL_ADAPTER", f"Unsupported guidance patch: {key}.")
+
+
+def patch_joint(model, make_state, *, engine=None, weights=(), attention=None):
+    """Shared native patch installation; weighting arithmetic stays with its engine."""
+    from comfy.ldm.modules import attention as attn
+    from comfy.patcher_extension import WrappersMP
+    diffusion = model.get_model_object("diffusion_model")
+    check_joint_patches(model)
     backend, backend_kind = select_attention_backend(attn)
     if len(getattr(diffusion, "layers", [])) != 42 or not hasattr(diffusion, "text_embedder"):
         raise EmphasisError("UNSUPPORTED_MODEL_ADAPTER", "Expected the native 42-block MOSS-Image architecture.")
-    forward_state = ForwardState(conditioning[0][0][0], weights, strength, engine)
+    forward_state = make_state()
 
     class LocalAttention(attn.ComfyAttention):
         def __init__(self, original):
@@ -207,6 +217,9 @@ def patch(model, conditioning, weights, strength, engine=ENGINE):
                     raise EmphasisError("UNSUPPORTED_ATTENTION_BACKEND", "Comfy Kitchen would fall back to PyTorch for float32 + low_precision_attention=False; no silent fallback.")
             state = opts.get(KEY)
             if state:
+                if attention is not None:
+                    return attention(backend, attn.AttentionTensorContainer, q, k, v, heads,
+                                     state, args, mask, opts, kwargs)
                 rows, start, factors, bias = state
                 if engine == NEGPIP:
                     return run_attention(backend, attn.AttentionTensorContainer, q, k, v, heads,

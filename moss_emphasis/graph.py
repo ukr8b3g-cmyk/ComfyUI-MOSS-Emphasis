@@ -4,7 +4,7 @@ import copy
 import hashlib
 import json
 import re
-from .config import EmphasisError, RUNTIME, RUNTIME_V2, settings, canonical, active_strength
+from .config import EmphasisError, RUNTIME, RUNTIME_V2, RUNTIME_V3, FORGE, settings, canonical, should_apply
 
 TARGETS = {"KSampler", "KSamplerAdvanced", "CFGGuider"}
 CONFLICTS = {"MossImagePromptWeight", "MOSSImagePromptWeight", "CLIPNegPip"}
@@ -47,7 +47,7 @@ def _validate(prompt):
 def _restore(prompt):
     for key in list(prompt):
         node = prompt[key]
-        if node["class_type"] not in (RUNTIME, RUNTIME_V2):
+        if node["class_type"] not in (RUNTIME, RUNTIME_V2, RUNTIME_V3):
             continue
         inp = node["inputs"]
         try:
@@ -57,7 +57,15 @@ def _restore(prompt):
             dest = prompt[target]["inputs"]
             if enc["class_type"] != "CLIPTextEncode" or dest["model"] != [key, 0] or dest["positive"] != [key, 1]:
                 raise ValueError("links")
-            if enc["inputs"]["clip"] != inp["clip"] or enc["inputs"]["text"] != inp["text"]:
+            if node["class_type"] == RUNTIME_V3:
+                neg = prompt[source["negative_encoder"]]
+                if (neg["class_type"] != "CLIPTextEncode" or dest["negative"] != [key, 2]
+                        or source["negative"] != [source["negative_encoder"], 0] or inp["model"] != source["model"]):
+                    raise ValueError("negative/model changed")
+                for role, original in (("positive", enc), ("negative", neg)):
+                    if any(original["inputs"][name] != inp[f"{role}_{name}"] for name in ("clip", "text")):
+                        raise ValueError("encoder changed")
+            elif enc["inputs"]["clip"] != inp["clip"] or enc["inputs"]["text"] != inp["text"]:
                 raise ValueError("source changed")
             if node["class_type"] == RUNTIME_V2:
                 if dest["negative"] != [key, 2] or inp["negative"] != source["negative"]:
@@ -67,7 +75,11 @@ def _restore(prompt):
                 for v in data["inputs"].values():
                     if link(v) and v[0] == key and other != target:
                         raise ValueError("shared runtime")
-            settings(json.loads(inp["settings_json"]))
+            restored_settings = settings(json.loads(inp["settings_json"]))
+            if node["class_type"] == RUNTIME_V3:
+                if restored_settings["engine"] != FORGE:
+                    raise ValueError("engine changed")
+                dest["negative"] = source["negative"]
             dest["model"], dest["positive"] = inp["model"], [encoder, 0]
             del prompt[key]
         except (KeyError, TypeError, ValueError) as exc:
@@ -90,10 +102,11 @@ def prepare(prompt: dict, config: dict) -> dict:
     _validate(prompt)
     result = copy.deepcopy(prompt)
     _restore(result)
-    if not snapshot["enabled"] or active_strength(snapshot) == 0:
+    if not should_apply(snapshot):
         return {"prompt": result, "settings": snapshot, "targets": [], "warnings": []}
     targets = []
-    auto = snapshot["schema_version"] == 3
+    forge = snapshot["engine"] == FORGE
+    auto = snapshot["schema_version"] == 3 or forge
     for key, node in list(result.items()):
         kind, inputs = node["class_type"], node["inputs"]
         unsupported = (kind not in TARGETS and (("sampler" in kind.lower() and ("positive" in inputs or "pipe" in inputs)) or "guider" in kind.lower()))
@@ -127,11 +140,26 @@ def prepare(prompt: dict, config: dict) -> dict:
         source = {"encoder": encoder, "target": key}
         if auto:
             source["negative"] = copy.deepcopy(inputs["negative"])
-        result[runtime_id] = {"class_type": RUNTIME_V2 if auto else RUNTIME, "inputs": {
+        if forge:
+            negative_encoder = inputs["negative"][0]
+            negative = result[negative_encoder]
+            nin = negative["inputs"]
+            if (negative["class_type"] != "CLIPTextEncode" or inputs["negative"][1] != 0
+                    or not link(nin.get("clip")) or not (isinstance(nin.get("text"), str) or link(nin.get("text")))):
+                raise EmphasisError("UNSUPPORTED_CONDITIONING_PATH", "Forge mode requires Negative directly from ordinary CLIP Text Encode.", key)
+            source.update(negative_encoder=negative_encoder, model=copy.deepcopy(inputs["model"]))
+            result[runtime_id] = {"class_type": RUNTIME_V3, "inputs": {
+                "model": copy.deepcopy(inputs["model"]),
+                "positive_clip": copy.deepcopy(ein["clip"]), "positive_text": copy.deepcopy(ein["text"]),
+                "negative_clip": copy.deepcopy(nin["clip"]), "negative_text": copy.deepcopy(nin["text"]),
+                "settings_json": canonical(snapshot), "source": json.dumps(source, sort_keys=True)}}
+        else:
+            result[runtime_id] = {"class_type": RUNTIME_V2 if auto else RUNTIME, "inputs": {
             "model": copy.deepcopy(inputs["model"]), "clip": copy.deepcopy(ein["clip"]), "text": copy.deepcopy(ein["text"]),
             "settings_json": canonical(snapshot), "source": json.dumps(source, sort_keys=True)}}
         if auto:
-            result[runtime_id]["inputs"]["negative"] = copy.deepcopy(inputs["negative"])
+            if not forge:
+                result[runtime_id]["inputs"]["negative"] = copy.deepcopy(inputs["negative"])
             inputs["negative"] = [runtime_id, 2]
         inputs["model"], inputs["positive"] = [runtime_id, 0], [runtime_id, 1]
         targets.append({"target": key, "encoder": encoder, "runtime": runtime_id})

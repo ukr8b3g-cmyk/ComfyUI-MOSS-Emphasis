@@ -1,7 +1,7 @@
 {
   "MOSSEmphasis_General_Enabled": {
     "name": "プロンプトの重み付けを有効化",
-    "tooltip": "現在のワークフローのPositiveプロンプトで (語句:重み) 構文を有効にします。通常のCLIP Text EncodeやText Multilineをそのまま使えます。設定はワークフロー単位で保存され、新規ワークフローではOFFです。"
+    "tooltip": "現在のワークフローで重み構文を有効にします。Forge方式はPositiveとNegativeの両方を処理し、既存方式はNegativeを従来どおり維持します。通常のCLIP Text Encodeを使用し、新規ワークフローではOFFです。"
   },
   "MOSSEmphasis_General_Strength": {
     "name": "重み付け強度",
@@ -22,11 +22,23 @@
   },
   "MOSSEmphasis_General_NegPiP": {
     "name": "NegPiP方式を使用",
-    "tooltip": "ONでモデル別のPPM参照NegPiP、OFFで通常方式を使います。MODELとCLIPからMOSS、SDXL／Illustrious、標準Animaを自動判定します。Negativeの標準の意味は維持します。重み設定を操作すると旧ワークフローもモデル自動判定へ移行します。"
+    "tooltip": "ONで選択したNegPiP方式、OFFで通常方式を使います。PPMはMOSS・SDXL／Illustrious・Anima、Forgeは標準MOSSのみ対応し、正負両欄を処理します。ForgeでMOSS以外のモデルを使うと重み処理を自動無効化します。"
   },
   "MOSSEmphasis_General_NegPiPStrength": {
     "name": "NegPiP効果",
     "tooltip": "1が参照数式、0は構文処理も含む完全バイパスです。0.5で負の語のValueは0になりますが、トークン削除ではありません。この効果調整は独自の追加機能です。"
+  },
+  "MOSSEmphasis_General_NegPiPImplementation": {
+    "name": "NegPiPの実装方式",
+    "tooltip": "PPM referenceは既存方式を維持します。Forge compatibleは区間トークン化・空埋め込みとの補間・Value符号を使います。標準MOSS専用で、Layout JSONや加工済みの条件は初期対応外です。"
+  },
+  "MOSSEmphasis_General_VScaling": {
+    "name": "V-Scalingを使用",
+    "tooltip": "Forge専用です。OFFでも埋め込みの絶対値とValueの符号を使う基本NegPiPが有効です。ONでは重みの絶対値を画像queryが読むValue側へ移します。既存PPMの効果強度とは別の機能です。"
+  },
+  "MOSSEmphasis_General_VScalingStrength": {
+    "name": "V-Scaling強度",
+    "tooltip": "Forge専用の0～2です。0は基本NegPiPで、完全無効ではありません。1は符号付きの重みを画像queryのValueへ適用し、1超は指数を増やします。文章queryは符号だけを読みます。完全無効は全体OFFです。"
   },
   "MOSSEmphasis_General_Status": {
     "name": "現在の方式",

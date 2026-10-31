@@ -1,7 +1,7 @@
 """Internal execution node. No dependency on KJNodes or the independent node."""
 import json
 import logging
-from .config import EmphasisError, settings, active_strength, ENGINE, NEGPIP, AUTO_NEGPIP
+from .config import EmphasisError, settings, active_strength, ENGINE, NEGPIP, AUTO_NEGPIP, FORGE
 from .parser import parse
 from .tokens import tokenize
 
@@ -19,7 +19,7 @@ class Runtime:
     def execute(self, model, clip, text, settings_json, source=""):
         from .engine import is_native_moss, patch
         config = settings(json.loads(settings_json))
-        if config["schema_version"] == 3:
+        if config["schema_version"] >= 3:
             raise EmphasisError("INVALID_SETTINGS", "Model-auto settings require runtime V2.", source)
         ordinary = lambda: (model, clip.encode_from_tokens_scheduled(clip.tokenize(text)))
         if not config["enabled"] or active_strength(config) == 0:
@@ -75,3 +75,13 @@ class RuntimeV2(Runtime):
             weighted_model, cond = super().execute(model, clip, text, json.dumps(legacy), source)
             return weighted_model, cond, negative
         return encode_native(model, clip, text, negative, config)
+
+
+class RuntimeV3:
+    """Raw text/CLIP for both branches avoids forcing the old Negative encode."""
+    def execute(self, model, positive_clip, positive_text, negative_clip, negative_text, settings_json, source=""):
+        from .forge_negpip import execute
+        config = settings(json.loads(settings_json))
+        if config["engine"] != FORGE:
+            raise EmphasisError("INVALID_SETTINGS", "Runtime V3 requires Forge settings.", source)
+        return execute(model, positive_clip, positive_text, negative_clip, negative_text, config)

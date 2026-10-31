@@ -1,9 +1,9 @@
 [project]
 name = "comfyui-moss-emphasis"
-version = "0.10.1"
-description = "Settings-controlled prompt weighting and NegPiP for native MOSS-Image, SDXL and Anima"
+version = "0.11.0"
+description = "Workflow-scoped emphasis and NegPiP for MOSS, SDXL and Anima, with Forge-compatible MOSS V-Scaling"
 requires-python = ">=3.10"
-license = {file = "LICENSE"}
+license = {text = "GPL-3.0-only AND AGPL-3.0-only"}
 dependencies = []
 
 [project.urls]

@@ -2,7 +2,7 @@ import copy
 import json
 import math
 import unittest
-from moss_emphasis.config import EmphasisError, RUNTIME, settings, canonical, coefficients
+from moss_emphasis.config import VERSION, EmphasisError, RUNTIME, settings, canonical, coefficients
 from moss_emphasis.parser import parse
 from moss_emphasis.graph import prepare
 from moss_emphasis.tokens import PREFIX, SUFFIX, align, byte_decoder, normalize
@@ -22,16 +22,16 @@ class SettingsTests(unittest.TestCase):
         for v in [-1, 4.1, True, "1", math.inf, math.nan]:
             with self.subTest(v=v), self.assertRaises(EmphasisError): settings({"strength": v})
     def test_legacy_version_migrates(self):
-        for version in ("0.9.0", "0.9.1", "0.10.0"):
-            self.assertEqual(settings({"version": version, "enabled": True})["version"], "0.10.1")
+        for version in ("0.9.0", "0.9.1", "0.10.0", "0.10.1"):
+            self.assertEqual(settings({"version": version, "enabled": True})["version"], VERSION)
 
     def test_prior_auto_and_negpip_settings_keep_scope_on_version_upgrade(self):
-        for version in ("0.9.1", "0.10.0"):
+        for version in ("0.9.1", "0.10.0", "0.10.1"):
             for schema, engine in ((2, "kj_dit_v1"), (2, "ppm_negpip_moss_v1"), (3, "native_auto_v1"), (3, "negpip_auto_v1")):
                 old = {"version": version, "schema_version": schema, "engine": engine,
                        "enabled": True, "strength": .7, "negpip_strength": .4}
                 migrated = settings(old)
-                self.assertEqual(migrated["version"], "0.10.1")
+                self.assertEqual(migrated["version"], VERSION)
                 for key in ("schema_version", "engine", "enabled", "strength", "negpip_strength"):
                     self.assertEqual(migrated[key], old[key])
 

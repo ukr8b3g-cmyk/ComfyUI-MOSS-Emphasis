@@ -1,6 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
-import { Controller, IDS, hideRuntime, normalize, isNegPiP } from "./controller.js";
+import { Controller, IDS, hideRuntime, normalize, isNegPiP, isForge, shouldApply } from "./controller.js";
 
 function notify(detail) {
   const toast = app.extensionManager?.toast;
@@ -26,7 +26,9 @@ function strengthRenderer(name, max) {
       try {
         const config = normalize(controller.graph?.extra?.moss_emphasis);
         input.value = String(config[name]);
-        input.disabled = !controller.ready || !config.enabled || isNegPiP(config) !== (name === "negpip_strength");
+        const active = name === "v_scaling_strength" ? isForge(config) && config.v_scaling_enabled :
+          name === "negpip_strength" ? isNegPiP(config) && !isForge(config) : !isNegPiP(config);
+        input.disabled = !controller.ready || !config.enabled || !active;
       } catch { input.disabled = true; }
     };
     input.addEventListener("change", () => {
@@ -34,6 +36,25 @@ function strengthRenderer(name, max) {
       if (!Number.isFinite(number) || number < 0 || number > max) { update(); return; }
       setter(number);
     });
+    views.add({element: input, update}); update(); return input;
+  };
+}
+function forgeRenderer(name) {
+  return (_label, setter) => {
+    const choice = name === "negpip_implementation";
+    const input = document.createElement(choice ? "select" : "input");
+    if (choice) for (const value of ["PPM reference", "Forge compatible"]) {
+      const option = document.createElement("option"); option.value = value; option.textContent = value; input.append(option);
+    }
+    else input.type = "checkbox";
+    const update = () => {
+      try {
+        const config = normalize(controller.graph?.extra?.moss_emphasis);
+        if (choice) input.value = config[name]; else input.checked = config[name];
+        input.disabled = !controller.ready || !config.enabled || !isNegPiP(config) || (!choice && !isForge(config));
+      } catch { input.disabled = true; }
+    };
+    input.addEventListener("change", () => setter(choice ? input.value : input.checked));
     views.add({element: input, update}); update(); return input;
   };
 }
@@ -46,10 +67,16 @@ function statusRenderer() {
       const config = normalize(controller.graph?.extra?.moss_emphasis);
       const neg = isNegPiP(config);
       const strength = neg ? config.negpip_strength : config.strength;
-      element.textContent = !config.enabled || strength === 0 ? (ja ? "無効（完全バイパス）" : "OFF (complete bypass)") :
-        (neg ? "NegPiP" : "Emphasis") + " / " + strength +
-        (config.schema_version === 3 ? (ja ? "（モデル自動判定）" : " (auto model)") : (ja ? "（旧MOSS方式）" : " (legacy MOSS)"));
+      element.textContent = !shouldApply(config) ? (ja ? "無効（完全バイパス）" : "OFF (complete bypass)") :
+        isForge(config) ? "Forge NegPiP / V-Scaling " + (config.v_scaling_enabled ? config.v_scaling_strength : 0) +
+          (ja ? "（MOSS以外は自動無効）" : " (auto bypass outside MOSS)") :
+          (neg ? "PPM NegPiP" : "Emphasis") + " / " + strength +
+          (config.schema_version === 3 ? (ja ? "（モデル自動判定）" : " (auto model)") : (ja ? "（旧MOSS方式）" : " (legacy MOSS)"));
     } catch { element.textContent = ja ? "設定エラー：設定をリセットして復旧" : "Invalid settings: reset to recover"; }
+    const source = document.createElement("a");
+    source.href = api.apiURL("/moss_emphasis/source");
+    source.textContent = ja ? "実行中の版の対応ソース（GPL/AGPL）" : "Corresponding source of this installed version (GPL/AGPL)";
+    source.style.display = "block"; element.append(source);
   };
   views.add({element, update}); update(); return element;
 }
@@ -71,7 +98,7 @@ app.registerExtension({
     { id: IDS.enabled, name: "Enable prompt weighting", category: ["MOSS Emphasis", "General", "Enabled"],
       sortOrder: 100,
       type: "boolean", defaultValue: false,
-      tooltip: "Current workflow only. Uses ordinary CLIP Text Encode / Text Multiline. Saved with this workflow; new workflows start OFF.",
+      tooltip: "Current workflow only. Uses ordinary CLIP Text Encode / Text Multiline. Forge mode weights both Positive and Negative; existing methods preserve Negative. New workflows start OFF.",
       onChange: value => controller.change("enabled", value) },
     { id: IDS.strength, name: "Strength", category: ["MOSS Emphasis", "General", "Strength"],
       sortOrder: 90,
@@ -81,13 +108,28 @@ app.registerExtension({
     { id: IDS.negpip, name: "Use NegPiP", category: ["MOSS Emphasis", "General", "NegPiP"],
       sortOrder: 80,
       type: "boolean", defaultValue: false,
-      tooltip: "ON selects model-specific PPM-reference NegPiP; OFF selects normal emphasis. MODEL and CLIP select MOSS, SDXL/Illustrious or native Anima automatically. Negative retains its native meaning. Changing weighting settings upgrades a legacy workflow to auto model mode.",
+      tooltip: "ON uses the selected NegPiP implementation; OFF keeps normal emphasis. PPM supports MOSS, SDXL/Illustrious and Anima. Forge supports native MOSS only and weights both Positive and Negative. Other models bypass Forge weighting.",
       onChange: value => controller.change("negpip", value) },
+    { id: IDS.negpip_implementation, name: "NegPiP implementation", category: ["MOSS Emphasis", "General", "NegPiPImplementation"],
+      sortOrder: 75,
+      type: forgeRenderer("negpip_implementation"), defaultValue: "PPM reference",
+      tooltip: "PPM reference preserves the existing method. Forge compatible uses segment tokenization, empty-encoding interpolation and signed Values. Native MOSS only; Layout JSON and processed conditioning are unsupported.",
+      onChange: value => controller.change("negpip_implementation", value) },
     { id: IDS.negpip_strength, name: "NegPiP effect", category: ["MOSS Emphasis", "General", "NegPiPStrength"],
       sortOrder: 70,
       type: strengthRenderer("negpip_strength", 1), defaultValue: 1,
       tooltip: "1 = reference equations; 0 = complete bypass including syntax. At 0.5 negative tokens have zero Value, but are not deleted. This effect control is an independent extension.",
       onChange: value => controller.change("negpip_strength", value) },
+    { id: IDS.v_scaling_enabled, name: "Use V-Scaling", category: ["MOSS Emphasis", "General", "VScaling"],
+      sortOrder: 68,
+      type: forgeRenderer("v_scaling_enabled"), defaultValue: false,
+      tooltip: "Forge only. OFF retains basic NegPiP: encoder magnitude and Value sign. ON transfers magnitude towards the Values read by image queries. This is not the PPM effect control.",
+      onChange: value => controller.change("v_scaling_enabled", value) },
+    { id: IDS.v_scaling_strength, name: "V-Scaling Strength", category: ["MOSS Emphasis", "General", "VScalingStrength"],
+      sortOrder: 66,
+      type: strengthRenderer("v_scaling_strength", 2), defaultValue: 1,
+      tooltip: "Forge only, 0..2. 0 is basic NegPiP, not complete bypass. 1 uses signed prompt magnitudes on image-query Values; above 1 increases their exponent. Text queries read sign-only Values. Master OFF bypasses weighting.",
+      onChange: value => controller.change("v_scaling_strength", value) },
     { id: IDS.status, name: "Current method", category: ["MOSS Emphasis", "General", "Status"],
       sortOrder: 60,
       type: statusRenderer, defaultValue: "",
